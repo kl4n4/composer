@@ -44,6 +44,18 @@ abstract class VcsDriver
         $this->firstCall = true;
     }
 
+	/**
+	 * Dirty way to support authorization to be set in vcs config
+	 * @author Thomas Klaner
+	 * @param string VCS username
+	 * @param string VCS password
+	 * @return void
+	 */
+    public function setAuthorization($username, $password)
+    {
+		$this->io->setAuthorization($this->url, $username, $password);
+    }
+
     /**
      * Get the https or http protocol depending on SSL support.
      *

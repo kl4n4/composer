@@ -13,6 +13,8 @@ use Composer\IO\IOInterface;
 class VcsRepository extends ArrayRepository
 {
     protected $url;
+	protected $username;
+	protected $password;
     protected $packageName;
     protected $debug;
     protected $io;
@@ -33,6 +35,10 @@ class VcsRepository extends ArrayRepository
         );
 
         $this->url = $config['url'];
+		if(isset($config['username']) && isset($config['password'])) {
+			$this->username = $config['username'];
+			$this->password = $config['password'];
+		}
         $this->io = $io;
     }
 
@@ -46,6 +52,8 @@ class VcsRepository extends ArrayRepository
         foreach ($this->drivers as $driver) {
             if ($driver::supports($this->url)) {
                 $driver = new $driver($this->url, $this->io);
+				if($this->username)
+                	$driver->setAuthorization($this->username, $this->password);
                 $driver->initialize();
                 return $driver;
             }
@@ -54,6 +62,8 @@ class VcsRepository extends ArrayRepository
         foreach ($this->drivers as $driver) {
             if ($driver::supports($this->url, true)) {
                 $driver = new $driver($this->url, $this->io);
+				if($this->username)
+                	$driver->setAuthorization($this->username, $this->password);
                 $driver->initialize();
                 return $driver;
             }
