@@ -15,6 +15,7 @@ namespace Composer\Downloader;
 use Composer\Package\PackageInterface;
 use Composer\Util\ProcessExecutor;
 use Composer\IO\IOInterface;
+use Composer\Util\Filesystem;
 
 /**
  * @author Jordi Boggiano <j.boggiano@seld.be>
@@ -23,11 +24,13 @@ abstract class VcsDownloader implements DownloaderInterface
 {
     protected $io;
     protected $process;
+    protected $filesystem;
 
-    public function __construct(IOInterface $io, ProcessExecutor $process = null)
+    public function __construct(IOInterface $io, ProcessExecutor $process = null, Filesystem $fs = null)
     {
         $this->io = $io;
         $this->process = $process ?: new ProcessExecutor;
+        $this->filesystem = $fs ?: new Filesystem;
     }
 
     /**
@@ -73,8 +76,7 @@ abstract class VcsDownloader implements DownloaderInterface
     public function remove(PackageInterface $package, $path)
     {
         $this->enforceCleanDirectory($path);
-        $fs = new Util\Filesystem();
-        $fs->removeDirectory($path);
+        $this->filesystem->removeDirectory($path);
     }
 
     /**
