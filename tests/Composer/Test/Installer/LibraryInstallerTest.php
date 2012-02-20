@@ -14,7 +14,7 @@ namespace Composer\Test\Installer;
 
 use Composer\Installer\LibraryInstaller;
 use Composer\DependencyResolver\Operation;
-use Composer\Downloader\Util\Filesystem;
+use Composer\Util\Filesystem;
 
 class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
 {
@@ -22,22 +22,22 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
     private $binDir;
     private $dm;
     private $repository;
-    private $library;
     private $io;
+    private $fs;
 
     protected function setUp()
     {
-        $fs = new Filesystem;
+        $this->fs = new Filesystem;
 
         $this->vendorDir = realpath(sys_get_temp_dir()).DIRECTORY_SEPARATOR.'composer-test-vendor';
         if (is_dir($this->vendorDir)) {
-            $fs->removeDirectory($this->vendorDir);
+            $this->fs->removeDirectory($this->vendorDir);
         }
         mkdir($this->vendorDir);
 
         $this->binDir = realpath(sys_get_temp_dir()).DIRECTORY_SEPARATOR.'composer-test-bin';
         if (is_dir($this->binDir)) {
-            $fs->removeDirectory($this->binDir);
+            $this->fs->removeDirectory($this->binDir);
         }
         mkdir($this->binDir);
 
@@ -52,16 +52,20 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
             ->getMock();
     }
 
-    public function testInstallerCreation()
+    public function testInstallerCreationShouldNotCreateVendorDirectory()
     {
-        $library = new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
-        $this->assertTrue(is_dir($this->vendorDir));
+        $this->fs->removeDirectory($this->vendorDir);
 
-        $file = sys_get_temp_dir().'/file';
-        touch($file);
+        new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
+        $this->assertFileNotExists($this->vendorDir);
+    }
 
-        $this->setExpectedException('RuntimeException');
-        $library = new LibraryInstaller($file, $this->binDir, $this->dm, $this->repository, $this->io);
+    public function testInstallerCreationShouldNotCreateBinDirectory()
+    {
+        $this->fs->removeDirectory($this->binDir);
+
+        new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
+        $this->assertFileNotExists($this->binDir);
     }
 
     public function testIsInstalled()
@@ -79,6 +83,10 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
         $this->assertFalse($library->isInstalled($package));
     }
 
+    /**
+     * @depends testInstallerCreationShouldNotCreateVendorDirectory
+     * @depends testInstallerCreationShouldNotCreateBinDirectory
+     */
     public function testInstall()
     {
         $library = new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
@@ -100,8 +108,14 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
             ->with($package);
 
         $library->install($package);
+        $this->assertFileExists($this->vendorDir, 'Vendor dir should be created');
+        $this->assertFileExists($this->binDir, 'Bin dir should be created');
     }
 
+    /**
+     * @depends testInstallerCreationShouldNotCreateVendorDirectory
+     * @depends testInstallerCreationShouldNotCreateBinDirectory
+     */
     public function testUpdate()
     {
         $library = new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
@@ -114,10 +128,9 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
             ->will($this->returnValue('package1'));
 
         $this->repository
-            ->expects($this->exactly(2))
+            ->expects($this->exactly(3))
             ->method('hasPackage')
-            ->with($initial)
-            ->will($this->onConsecutiveCalls(true, false));
+            ->will($this->onConsecutiveCalls(true, false, false));
 
         $this->dm
             ->expects($this->once())
@@ -135,6 +148,8 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
             ->with($target);
 
         $library->update($initial, $target);
+        $this->assertFileExists($this->vendorDir, 'Vendor dir should be created');
+        $this->assertFileExists($this->binDir, 'Bin dir should be created');
 
         $this->setExpectedException('InvalidArgumentException');
 

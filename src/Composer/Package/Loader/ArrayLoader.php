@@ -74,6 +74,13 @@ class ArrayLoader
             $package->setBinaries($config['bin']);
         }
 
+        if (isset($config['scripts']) && is_array($config['scripts'])) {
+            foreach ($config['scripts'] as $event => $listeners) {
+                $config['scripts'][$event]= (array) $listeners;
+            }
+            $package->setScripts($config['scripts']);
+        }
+
         if (!empty($config['description']) && is_string($config['description'])) {
             $package->setDescription($config['description']);
         }
@@ -115,6 +122,8 @@ class ArrayLoader
             $package->setSourceType($config['source']['type']);
             $package->setSourceUrl($config['source']['url']);
             $package->setSourceReference($config['source']['reference']);
+        } elseif ($package->isDev()) {
+            throw new \UnexpectedValueException('Dev package '.$package.' must have a source specified');
         }
 
         if (isset($config['dist'])) {

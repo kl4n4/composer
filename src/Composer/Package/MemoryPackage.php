@@ -40,6 +40,8 @@ class MemoryPackage extends BasePackage
     protected $homepage;
     protected $extra = array();
     protected $binaries = array();
+    protected $scripts = array();
+    protected $dev;
 
     protected $requires = array();
     protected $conflicts = array();
@@ -62,6 +64,16 @@ class MemoryPackage extends BasePackage
 
         $this->version = $version;
         $this->prettyVersion = $prettyVersion;
+
+        $this->dev = 'dev-' === substr($version, 0, 4) || '-dev' === substr($version, -4);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function isDev()
+    {
+        return $this->dev;
     }
 
     /**
@@ -126,6 +138,22 @@ class MemoryPackage extends BasePackage
     public function getBinaries()
     {
         return $this->binaries;
+    }
+
+    /**
+     * @param array $scripts
+     */
+    public function setScripts(array $scripts)
+    {
+        $this->scripts = $scripts;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getScripts()
+    {
+        return $this->scripts;
     }
 
     /**
@@ -421,7 +449,7 @@ class MemoryPackage extends BasePackage
      *
      * @param DateTime $releaseDate
      */
-    public function setReleasedate(\DateTime $releaseDate)
+    public function setReleaseDate(\DateTime $releaseDate)
     {
         $this->releaseDate = $releaseDate;
     }

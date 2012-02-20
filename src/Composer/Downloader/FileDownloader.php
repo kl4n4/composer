@@ -1,4 +1,5 @@
 <?php
+
 /*
  * This file is part of Composer.
  *
@@ -13,6 +14,8 @@ namespace Composer\Downloader;
 
 use Composer\IO\IOInterface;
 use Composer\Package\PackageInterface;
+use Composer\Util\Filesystem;
+use Composer\Util\RemoteFilesystem;
 
 /**
  * Base downloader for file packages
@@ -24,7 +27,6 @@ use Composer\Package\PackageInterface;
 abstract class FileDownloader implements DownloaderInterface
 {
     protected $io;
-    private $bytesMax;
 
     /**
      * Constructor.
@@ -49,9 +51,6 @@ abstract class FileDownloader implements DownloaderInterface
      */
     public function download(PackageInterface $package, $path)
     {
-        // init the progress bar
-        $this->bytesMax = 0;
-
         $url = $package->getDistUrl();
         $checksum = $package->getDistSha1Checksum();
 
@@ -77,35 +76,9 @@ abstract class FileDownloader implements DownloaderInterface
             }
         }
 
-        // Handle system proxy
-        $params = array('http' => array());
-
-        if (isset($_SERVER['HTTP_PROXY'])) {
-            // http(s):// is not supported in proxy
-            $proxy = str_replace(array('http://', 'https://'), array('tcp://', 'ssl://'), $_SERVER['HTTP_PROXY']);
-
-            if (0 === strpos($proxy, 'ssl:') && !extension_loaded('openssl')) {
-                throw new \RuntimeException('You must enable the openssl extension to use a proxy over https');
-            }
-
-            $params['http'] = array(
-                'proxy'           => $proxy,
-                'request_fulluri' => true,
-            );
-        }
-
-        if ($this->io->hasAuthorization($package->getSourceUrl())) {
-            $auth = $this->io->getAuthorization($package->getSourceUrl());
-            $authStr = base64_encode($auth['username'] . ':' . $auth['password']);
-            $params['http'] = array_merge($params['http'], array('header' => "Authorization: Basic $authStr\r\n"));
-        }
-
-        $ctx = stream_context_create($params);
-        stream_context_set_params($ctx, array("notification" => array($this, 'callbackGet')));
-
-        $this->io->overwrite("    Downloading: <comment>connection...</comment>", false);
-		@file_put_contents($fileName, @file_get_contents($url, null, $ctx));
-        $this->io->overwrite("    Downloading");
+        $rfs = new RemoteFilesystem($this->io);
+        $rfs->copy($package->getSourceUrl(), $url, $fileName);
+        $this->io->write('');
 
         if (!file_exists($fileName)) {
             throw new \UnexpectedValueException($url.' could not be saved to '.$fileName.', make sure the'
@@ -126,6 +99,13 @@ abstract class FileDownloader implements DownloaderInterface
         $contentDir = glob($path . '/*');
         if (1 === count($contentDir)) {
             $contentDir = $contentDir[0];
+
+            // Rename the content directory to avoid error when moving up
+            // a child folder with the same name
+            $temporaryName = md5(time().rand());
+            rename($contentDir, $temporaryName);
+            $contentDir = $temporaryName;
+
             foreach (array_merge(glob($contentDir . '/.*'), glob($contentDir . '/*')) as $file) {
                 if (trim(basename($file), '.')) {
                     rename($file, $path . '/' . basename($file));
@@ -142,7 +122,7 @@ abstract class FileDownloader implements DownloaderInterface
      */
     public function update(PackageInterface $initial, PackageInterface $target, $path)
     {
-        $fs = new Util\Filesystem();
+        $fs = new Filesystem();
         $fs->removeDirectory($path);
         $this->download($target, $path);
     }
@@ -152,54 +132,8 @@ abstract class FileDownloader implements DownloaderInterface
      */
     public function remove(PackageInterface $package, $path)
     {
-        $fs = new Util\Filesystem();
+        $fs = new Filesystem();
         $fs->removeDirectory($path);
-    }
-
-    /**
-     * Get notification action.
-     *
-     * @param integer $notificationCode The notification code
-     * @param integer $severity         The severity level
-     * @param string  $message          The message
-     * @param integer $messageCode      The message code
-     * @param integer $bytesTransferred The loaded size
-     * @param integer $bytesMax         The total size
-     */
-    protected function callbackGet($notificationCode, $severity, $message, $messageCode, $bytesTransferred, $bytesMax)
-    {
-        switch ($notificationCode) {
-            case STREAM_NOTIFY_AUTH_REQUIRED:
-                throw new \LogicException("Authorization is required");
-                break;
-
-            case STREAM_NOTIFY_FAILURE:
-                throw new \LogicException("File not found");
-                break;
-
-            case STREAM_NOTIFY_FILE_SIZE_IS:
-                if ($this->bytesMax < $bytesMax) {
-                    $this->bytesMax = $bytesMax;
-                }
-                break;
-
-            case STREAM_NOTIFY_PROGRESS:
-                if ($this->bytesMax > 0) {
-                    $progression = 0;
-
-                    if ($this->bytesMax > 0) {
-                        $progression = round($bytesTransferred / $this->bytesMax * 100);
-                    }
-
-                    if (0 === $progression % 5) {
-                        $this->io->overwrite("    Downloading: <comment>$progression%</comment>", false);
-                    }
-                }
-                break;
-
-            default:
-                break;
-        }
     }
 
     /**

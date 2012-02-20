@@ -17,7 +17,7 @@ use Composer\Downloader\DownloadManager;
 use Composer\Repository\WritableRepositoryInterface;
 use Composer\DependencyResolver\Operation\OperationInterface;
 use Composer\Package\PackageInterface;
-use Composer\Downloader\Util\Filesystem;
+use Composer\Util\Filesystem;
 
 /**
  * Package installation manager.
@@ -53,10 +53,8 @@ class LibraryInstaller implements InstallerInterface
         $this->type = $type;
 
         $this->filesystem = new Filesystem();
-        $this->filesystem->ensureDirectoryExists($vendorDir);
-        $this->filesystem->ensureDirectoryExists($binDir);
-        $this->vendorDir = realpath($vendorDir);
-        $this->binDir = realpath($binDir);
+        $this->vendorDir = rtrim($vendorDir, '/');
+        $this->binDir = rtrim($binDir, '/');
     }
 
     /**
@@ -72,7 +70,7 @@ class LibraryInstaller implements InstallerInterface
      */
     public function isInstalled(PackageInterface $package)
     {
-        return $this->repository->hasPackage($package);
+        return $this->repository->hasPackage($package) && is_readable($this->getInstallPath($package));
     }
 
     /**
@@ -80,11 +78,19 @@ class LibraryInstaller implements InstallerInterface
      */
     public function install(PackageInterface $package)
     {
+        $this->initializeDirs();
         $downloadPath = $this->getInstallPath($package);
+
+        // remove the binaries if it appears the package files are missing
+        if (!is_readable($downloadPath) && $this->repository->hasPackage($package)) {
+            $this->removeBinaries($package);
+        }
 
         $this->downloadManager->download($package, $downloadPath);
         $this->installBinaries($package);
-        $this->repository->addPackage(clone $package);
+        if (!$this->repository->hasPackage($package)) {
+            $this->repository->addPackage(clone $package);
+        }
     }
 
     /**
@@ -96,13 +102,16 @@ class LibraryInstaller implements InstallerInterface
             throw new \InvalidArgumentException('Package is not installed: '.$initial);
         }
 
+        $this->initializeDirs();
         $downloadPath = $this->getInstallPath($initial);
 
         $this->removeBinaries($initial);
         $this->downloadManager->update($initial, $target, $downloadPath);
         $this->installBinaries($target);
         $this->repository->removePackage($initial);
-        $this->repository->addPackage(clone $target);
+        if (!$this->repository->hasPackage($target)) {
+            $this->repository->addPackage(clone $target);
+        }
     }
 
     /**
@@ -140,6 +149,12 @@ class LibraryInstaller implements InstallerInterface
         foreach ($package->getBinaries() as $bin) {
             $link = $this->binDir.'/'.basename($bin);
             if (file_exists($link)) {
+                if (is_link($link)) {
+                    // likely leftover from a previous install, make sure
+                    // that the target is still executable in case this
+                    // is a fresh install of the vendor.
+                    chmod($link, 0755);
+                }
                 $this->io->write('Skipped installation of '.$bin.' for package '.$package->getName().', name conflicts with an existing file');
                 continue;
             }
@@ -149,14 +164,14 @@ class LibraryInstaller implements InstallerInterface
                 // add unixy support for cygwin and similar environments
                 if ('.bat' !== substr($bin, -4)) {
                     file_put_contents($link, $this->generateUnixyProxyCode($bin, $link));
-                    chmod($link, 0777);
+                    chmod($link, 0755);
                     $link .= '.bat';
                 }
                 file_put_contents($link, $this->generateWindowsProxyCode($bin, $link));
             } else {
                 symlink($bin, $link);
             }
-            chmod($link, 0777);
+            chmod($link, 0755);
         }
     }
 
@@ -172,6 +187,14 @@ class LibraryInstaller implements InstallerInterface
             }
             unlink($link);
         }
+    }
+
+    protected function initializeDirs()
+    {
+        $this->filesystem->ensureDirectoryExists($this->vendorDir);
+        $this->filesystem->ensureDirectoryExists($this->binDir);
+        $this->vendorDir = realpath($this->vendorDir);
+        $this->binDir = realpath($this->binDir);
     }
 
     private function generateWindowsProxyCode($bin, $link)
