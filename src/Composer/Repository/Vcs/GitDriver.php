@@ -1,44 +1,65 @@
 <?php
 
+/*
+ * This file is part of Composer.
+ *
+ * (c) Nils Adermann <naderman@naderman.de>
+ *     Jordi Boggiano <j.boggiano@seld.be>
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Composer\Repository\Vcs;
 
 use Composer\Json\JsonFile;
 use Composer\Util\ProcessExecutor;
+use Composer\Util\Filesystem;
 use Composer\IO\IOInterface;
 
 /**
  * @author Jordi Boggiano <j.boggiano@seld.be>
  */
-class GitDriver extends VcsDriver implements VcsDriverInterface
+class GitDriver extends VcsDriver
 {
     protected $tags;
     protected $branches;
     protected $rootIdentifier;
+    protected $repoDir;
     protected $infoCache = array();
-    protected $isLocal = false;
-
-    public function __construct($url, IOInterface $io, ProcessExecutor $process = null)
-    {
-        $this->tmpDir = sys_get_temp_dir() . '/composer-' . preg_replace('{[^a-z0-9]}i', '-', $url) . '/';
-
-        parent::__construct($url, $io, $process);
-    }
 
     /**
      * {@inheritDoc}
      */
     public function initialize()
     {
-        $url = escapeshellarg($this->url);
-        $tmpDir = escapeshellarg($this->tmpDir);
-
-        if (static::isLocalUrl($url)) {
-            $this->isLocal = true;
+        if (static::isLocalUrl($this->url)) {
+            $this->repoDir = str_replace('file://', '', $this->url);
         } else {
-            if (is_dir($this->tmpDir)) {
-                $this->process->execute(sprintf('cd %s && git fetch origin', $tmpDir), $output);
+            $this->repoDir = $this->config->get('home') . '/cache.git/' . preg_replace('{[^a-z0-9.]}i', '-', $this->url) . '/';
+
+            // update the repo if it is a valid git repository
+            if (is_dir($this->repoDir) && 0 === $this->process->execute('git remote', $output, $this->repoDir)) {
+                if (0 !== $this->process->execute('git remote update --prune origin', $output, $this->repoDir)) {
+                    $this->io->write('<error>Failed to update '.$this->url.', package information from this repository may be outdated ('.$this->process->getErrorOutput().')</error>');
+                }
             } else {
-                $this->process->execute(sprintf('git clone %s %s', $url, $tmpDir), $output);
+                // clean up directory and do a fresh clone into it
+                $fs = new Filesystem();
+                $fs->removeDirectory($this->repoDir);
+
+                // added in git 1.7.1, prevents prompting the user
+                putenv('GIT_ASKPASS=echo');
+                $command = sprintf('git clone --mirror %s %s', escapeshellarg($this->url), escapeshellarg($this->repoDir));
+                if (0 !== $this->process->execute($command, $output)) {
+                    $output = $this->process->getErrorOutput();
+
+                    if (0 !== $this->process->execute('git --version', $ignoredOutput)) {
+                        throw new \RuntimeException('Failed to clone '.$this->url.', git was not found, check that it is installed and in your PATH env.' . "\n\n" . $this->process->getErrorOutput());
+                    }
+
+                    throw new \RuntimeException('Failed to clone '.$this->url.', could not read packages from it' . "\n\n" .$output);
+                }
             }
         }
 
@@ -54,23 +75,12 @@ class GitDriver extends VcsDriver implements VcsDriverInterface
         if (null === $this->rootIdentifier) {
             $this->rootIdentifier = 'master';
 
-            if ($this->isLocal) {
-                // select currently checked out branch if master is not available
-                $this->process->execute(sprintf('cd %s && git branch --no-color', escapeshellarg($this->tmpDir)), $output);
-                $branches = $this->process->splitLines($output);
-                if (!in_array('* master', $branches)) {
-                    foreach ($branches as $branch) {
-                        if ($branch && preg_match('{^\* +(\S+)}', $branch, $match)) {
-                            $this->rootIdentifier = $match[1];
-                            break;
-                        }
-                    }
-                }
-            } else {
-                // try to find a non-master remote HEAD branch
-                $this->process->execute(sprintf('cd %s && git branch --no-color -r', escapeshellarg($this->tmpDir)), $output);
-                foreach ($this->process->splitLines($output) as $branch) {
-                    if ($branch && preg_match('{/HEAD +-> +[^/]+/(\S+)}', $branch, $match)) {
+            // select currently checked out branch if master is not available
+            $this->process->execute('git branch --no-color', $output, $this->repoDir);
+            $branches = $this->process->splitLines($output);
+            if (!in_array('* master', $branches)) {
+                foreach ($branches as $branch) {
+                    if ($branch && preg_match('{^\* +(\S+)}', $branch, $match)) {
                         $this->rootIdentifier = $match[1];
                         break;
                     }
@@ -113,16 +123,17 @@ class GitDriver extends VcsDriver implements VcsDriverInterface
     public function getComposerInformation($identifier)
     {
         if (!isset($this->infoCache[$identifier])) {
-            $this->process->execute(sprintf('cd %s && git show %s:composer.json', escapeshellarg($this->tmpDir), escapeshellarg($identifier)), $composer);
+            $resource = sprintf('%s:composer.json', escapeshellarg($identifier));
+            $this->process->execute(sprintf('git show %s', $resource), $composer, $this->repoDir);
 
             if (!trim($composer)) {
-                throw new \UnexpectedValueException('Failed to retrieve composer information for identifier '.$identifier.' in '.$this->getUrl());
+                return;
             }
 
-            $composer = JsonFile::parseJson($composer);
+            $composer = JsonFile::parseJson($composer, $resource);
 
             if (!isset($composer['time'])) {
-                $this->process->execute(sprintf('cd %s && git log -1 --format=%%at %s', escapeshellarg($this->tmpDir), escapeshellarg($identifier)), $output);
+                $this->process->execute(sprintf('git log -1 --format=%%at %s', escapeshellarg($identifier)), $output, $this->repoDir);
                 $date = new \DateTime('@'.trim($output));
                 $composer['time'] = $date->format('Y-m-d H:i:s');
             }
@@ -138,7 +149,7 @@ class GitDriver extends VcsDriver implements VcsDriverInterface
     public function getTags()
     {
         if (null === $this->tags) {
-            $this->process->execute(sprintf('cd %s && git tag', escapeshellarg($this->tmpDir)), $output);
+            $this->process->execute('git tag', $output, $this->repoDir);
             $output = $this->process->splitLines($output);
             $this->tags = $output ? array_combine($output, $output) : array();
         }
@@ -154,15 +165,12 @@ class GitDriver extends VcsDriver implements VcsDriverInterface
         if (null === $this->branches) {
             $branches = array();
 
-            $this->process->execute(sprintf(
-                'cd %s && git branch --no-color --no-abbrev -v %s',
-                escapeshellarg($this->tmpDir),
-                $this->isLocal ? '' : '-r'
-            ), $output);
+            $this->process->execute('git branch --no-color --no-abbrev -v', $output, $this->repoDir);
             foreach ($this->process->splitLines($output) as $branch) {
                 if ($branch && !preg_match('{^ *[^/]+/HEAD }', $branch)) {
-                    preg_match('{^ *[^/]+/(\S+) *([a-f0-9]+) .*$}', $branch, $match);
-                    $branches[$match[1]] = $match[2];
+                    if (preg_match('{^(?:\* )? *(?:[^/ ]+?/)?(\S+) *([a-f0-9]+) .*$}', $branch, $match)) {
+                       $branches[$match[1]] = $match[2];
+                    }
                 }
             }
 
@@ -175,31 +183,22 @@ class GitDriver extends VcsDriver implements VcsDriverInterface
     /**
      * {@inheritDoc}
      */
-    public function hasComposerFile($identifier)
+    public static function supports(IOInterface $io, $url, $deep = false)
     {
-        try {
-            $this->getComposerInformation($identifier);
-            return true;
-        } catch (\Exception $e) {
-        }
-
-        return false;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public static function supports($url, $deep = false)
-    {
-        if (preg_match('#(^git://|\.git$|git@|//git\.)#i', $url)) {
+        if (preg_match('#(^git://|\.git$|git@|//git\.|//github.com/)#i', $url)) {
             return true;
         }
 
         // local filesystem
         if (static::isLocalUrl($url)) {
+            if (!is_dir($url)) {
+                throw new \RuntimeException('Directory does not exist: '.$url);
+            }
+
             $process = new ProcessExecutor();
+            $url = str_replace('file://', '', $url);
             // check whether there is a git repo in that path
-            if ($process->execute(sprintf('cd %s && git show', escapeshellarg($url)), $output) === 0) {
+            if ($process->execute('git tag', $output, $url) === 0) {
                 return true;
             }
         }

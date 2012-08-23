@@ -12,7 +12,9 @@
 
 namespace Composer\Util;
 
+use Composer\Composer;
 use Composer\IO\IOInterface;
+use Composer\Downloader\TransportException;
 
 /**
  * @author François Pluchino <francois.pluchino@opendisplay.com>
@@ -26,13 +28,13 @@ class RemoteFilesystem
     private $fileUrl;
     private $fileName;
     private $result;
-    private $progess;
+    private $progress;
     private $lastProgress;
 
     /**
      * Constructor.
      *
-     * @param IOInterface  $io  The IO instance
+     * @param IOInterface $io The IO instance
      */
     public function __construct(IOInterface $io)
     {
@@ -42,16 +44,16 @@ class RemoteFilesystem
     /**
      * Copy the remote file in local.
      *
-     * @param string  $originUrl The orgin URL
+     * @param string  $originUrl The origin URL
      * @param string  $fileUrl   The file URL
      * @param string  $fileName  the local filename
-     * @param boolean $progess   Display the progression
+     * @param boolean $progress  Display the progression
      *
-     * @return Boolean true
+     * @return bool true
      */
-    public function copy($originUrl, $fileUrl, $fileName, $progess = true)
+    public function copy($originUrl, $fileUrl, $fileName, $progress = true)
     {
-        $this->get($originUrl, $fileUrl, $fileName, $progess);
+        $this->get($originUrl, $fileUrl, $fileName, $progress);
 
         return $this->result;
     }
@@ -59,15 +61,15 @@ class RemoteFilesystem
     /**
      * Get the content.
      *
-     * @param string  $originUrl The orgin URL
+     * @param string  $originUrl The origin URL
      * @param string  $fileUrl   The file URL
-     * @param boolean $progess   Display the progression
+     * @param boolean $progress  Display the progression
      *
      * @return string The content
      */
-    public function getContents($originUrl, $fileUrl, $progess = true)
+    public function getContents($originUrl, $fileUrl, $progress = true)
     {
-        $this->get($originUrl, $fileUrl, null, $progess);
+        $this->get($originUrl, $fileUrl, null, $progress);
 
         return $this->result;
     }
@@ -75,47 +77,77 @@ class RemoteFilesystem
     /**
      * Get file content or copy action.
      *
-     * @param string  $originUrl The orgin URL
+     * @param string  $originUrl The origin URL
      * @param string  $fileUrl   The file URL
      * @param string  $fileName  the local filename
-     * @param boolean $progess   Display the progression
-     * @param boolean $firstCall Whether this is the first attempt at fetching this resource
+     * @param boolean $progress  Display the progression
      *
-     * @throws \RuntimeException When the file could not be downloaded
+     * @throws TransportException When the file could not be downloaded
      */
-    protected function get($originUrl, $fileUrl, $fileName = null, $progess = true, $firstCall = true)
+    protected function get($originUrl, $fileUrl, $fileName = null, $progress = true)
     {
-        $this->firstCall = $firstCall;
         $this->bytesMax = 0;
         $this->result = null;
         $this->originUrl = $originUrl;
         $this->fileUrl = $fileUrl;
         $this->fileName = $fileName;
-        $this->progress = $progess;
+        $this->progress = $progress;
         $this->lastProgress = null;
 
-        // add authorization in context
-        $options = array();
-        if ($this->io->hasAuthorization($originUrl)) {
-            $auth = $this->io->getAuthorization($originUrl);
-            $authStr = base64_encode($auth['username'] . ':' . $auth['password']);
-            $options['http']['header'] = "Authorization: Basic $authStr\r\n";
-        } elseif (null !== $this->io->getLastUsername()) {
-            $authStr = base64_encode($this->io->getLastUsername() . ':' . $this->io->getLastPassword());
-            $options['http'] = array('header' => "Authorization: Basic $authStr\r\n");
-            $this->io->setAuthorization($originUrl, $this->io->getLastUsername(), $this->io->getLastPassword());
-        }
-
+        $options = $this->getOptionsForUrl($originUrl);
         $ctx = StreamContextFactory::getContext($options, array('notification' => array($this, 'callbackGet')));
 
         if ($this->progress) {
-            $this->io->overwrite("    Downloading: <comment>connection...</comment>", false);
+            $this->io->write("    Downloading: <comment>connection...</comment>", false);
         }
 
-        if (null !== $fileName) {
-            $result = @copy($fileUrl, $fileName, $ctx);
-        } else {
-            $result = @file_get_contents($fileUrl, false, $ctx);
+        $errorMessage = null;
+        set_error_handler(function ($code, $msg) use (&$errorMessage) {
+            $errorMessage = preg_replace('{^file_get_contents\(.+?\): }', '', $msg);
+            if (!ini_get('allow_url_fopen')) {
+                $errorMessage = 'allow_url_fopen must be enabled in php.ini ('.$errorMessage.')';
+            }
+        });
+        $result = file_get_contents($fileUrl, false, $ctx);
+        restore_error_handler();
+
+        // fix for 5.4.0 https://bugs.php.net/bug.php?id=61336
+        if (!empty($http_response_header[0]) && preg_match('{^HTTP/\S+ 404}i', $http_response_header[0])) {
+            $result = false;
+        }
+
+        // decode gzip
+        if (false !== $result && extension_loaded('zlib') && substr($fileUrl, 0, 4) === 'http') {
+            $decode = false;
+            foreach ($http_response_header as $header) {
+                if (preg_match('{^content-encoding: *gzip *$}i', $header)) {
+                    $decode = true;
+                    continue;
+                } elseif (preg_match('{^HTTP/}i', $header)) {
+                    $decode = false;
+                }
+            }
+
+            if ($decode) {
+                if (version_compare(PHP_VERSION, '5.4.0', '>=')) {
+                    $result = zlib_decode($result);
+                } else {
+                    // work around issue with gzuncompress & co that do not work with all gzip checksums
+                    $result = file_get_contents('compress.zlib://data:application/octet-stream;base64,'.base64_encode($result));
+                }
+            }
+        }
+
+        if ($this->progress) {
+            $this->io->overwrite("    Downloading: <comment>100%</comment>");
+        }
+
+        // handle copy command if download was successful
+        if (false !== $result && null !== $fileName) {
+            $result = (bool) @file_put_contents($fileName, $result);
+            if (false === $result) {
+                throw new TransportException('The "'.$fileUrl.'" file could not be written to '.$fileName);
+            }
         }
 
         // avoid overriding if content was loaded by a sub-call to get()
@@ -123,12 +155,8 @@ class RemoteFilesystem
             $this->result = $result;
         }
 
-        if ($this->progress) {
-            $this->io->overwrite("    Downloading", false);
-        }
-
         if (false === $this->result) {
-            throw new \RuntimeException("The '$fileUrl' file could not be downloaded");
+            throw new TransportException('The "'.$fileUrl.'" file could not be downloaded: '.$errorMessage);
         }
     }
 
@@ -145,28 +173,16 @@ class RemoteFilesystem
     protected function callbackGet($notificationCode, $severity, $message, $messageCode, $bytesTransferred, $bytesMax)
     {
         switch ($notificationCode) {
-            case STREAM_NOTIFY_AUTH_REQUIRED:
             case STREAM_NOTIFY_FAILURE:
-                // for private repository returning 404 error when the authorization is incorrect
-                $auth = $this->io->getAuthorization($this->originUrl);
-                $attemptAuthentication = $this->firstCall && 404 === $messageCode && null === $auth['username'];
+                throw new TransportException('The "'.$this->fileUrl.'" file could not be downloaded ('.trim($message).')', $messageCode);
+                break;
 
-                if (404 === $messageCode && !$this->firstCall) {
-                    throw new \RuntimeException("The '" . $this->fileUrl . "' URL not found");
-                }
-
-                $this->firstCall = false;
-
-                // get authorization informations
-                if (401 === $messageCode || $attemptAuthentication) {
+            case STREAM_NOTIFY_AUTH_REQUIRED:
+                if (401 === $messageCode) {
                     if (!$this->io->isInteractive()) {
-                        $mess = "The '" . $this->fileUrl . "' URL was not found";
+                        $message = "The '" . $this->fileUrl . "' URL required authentication.\nYou must be using the interactive console";
 
-                        if (401 === $code || $attemptAuthentication) {
-                            $mess = "The '" . $this->fileUrl . "' URL required authentication.\nYou must be using the interactive console";
-                        }
-
-                        throw new \RuntimeException($mess);
+                        throw new TransportException($message, 401);
                     }
 
                     $this->io->overwrite('    Authentication required (<info>'.parse_url($this->fileUrl, PHP_URL_HOST).'</info>):');
@@ -174,7 +190,7 @@ class RemoteFilesystem
                     $password = $this->io->askAndHideAnswer('      Password: ');
                     $this->io->setAuthorization($this->originUrl, $username, $password);
 
-                    $this->get($this->originUrl, $this->fileUrl, $this->fileName, $this->progress, false);
+                    $this->get($this->originUrl, $this->fileUrl, $this->fileName, $this->progress);
                 }
                 break;
 
@@ -202,5 +218,29 @@ class RemoteFilesystem
             default:
                 break;
         }
+    }
+
+    protected function getOptionsForUrl($originUrl)
+    {
+        $options['http']['header'] = sprintf(
+            "User-Agent: Composer/%s (%s; %s; PHP %s.%s.%s)\r\n",
+            Composer::VERSION,
+            php_uname('s'),
+            php_uname('r'),
+            PHP_MAJOR_VERSION,
+            PHP_MINOR_VERSION,
+            PHP_RELEASE_VERSION
+        );
+        if (extension_loaded('zlib')) {
+            $options['http']['header'] .= 'Accept-Encoding: gzip'."\r\n";
+        }
+
+        if ($this->io->hasAuthorization($originUrl)) {
+            $auth = $this->io->getAuthorization($originUrl);
+            $authStr = base64_encode($auth['username'] . ':' . $auth['password']);
+            $options['http']['header'] .= "Authorization: Basic $authStr\r\n";
+        }
+
+        return $options;
     }
 }

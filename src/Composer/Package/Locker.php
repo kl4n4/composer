@@ -13,47 +13,65 @@
 namespace Composer\Package;
 
 use Composer\Json\JsonFile;
+use Composer\Installer\InstallationManager;
 use Composer\Repository\RepositoryManager;
+use Composer\Util\ProcessExecutor;
+use Composer\Package\AliasPackage;
 
 /**
  * Reads/writes project lockfile (composer.lock).
  *
  * @author Konstantin Kudryashiv <ever.zet@gmail.com>
+ * @author Jordi Boggiano <j.boggiano@seld.be>
  */
 class Locker
 {
     private $lockFile;
     private $repositoryManager;
+    private $installationManager;
     private $hash;
+    private $lockDataCache;
 
     /**
      * Initializes packages locker.
      *
-     * @param JsonFile            $lockFile           lockfile loader
-     * @param RepositoryManager   $repositoryManager  repository manager instance
-     * @param string              $hash               unique hash of the current composer configuration
+     * @param JsonFile            $lockFile            lockfile loader
+     * @param RepositoryManager   $repositoryManager   repository manager instance
+     * @param InstallationManager $installationManager installation manager instance
+     * @param string              $hash                unique hash of the current composer configuration
      */
-    public function __construct(JsonFile $lockFile, RepositoryManager $repositoryManager, $hash)
+    public function __construct(JsonFile $lockFile, RepositoryManager $repositoryManager, InstallationManager $installationManager, $hash)
     {
         $this->lockFile          = $lockFile;
         $this->repositoryManager = $repositoryManager;
+        $this->installationManager = $installationManager;
         $this->hash = $hash;
     }
 
     /**
      * Checks whether locker were been locked (lockfile found).
      *
-     * @return Boolean
+     * @param  bool $dev true to check if dev packages are locked
+     * @return bool
      */
-    public function isLocked()
+    public function isLocked($dev = false)
     {
-        return $this->lockFile->exists();
+        if (!$this->lockFile->exists()) {
+            return false;
+        }
+
+        $data = $this->getLockData();
+        if ($dev) {
+            return isset($data['packages-dev']);
+        }
+
+        return isset($data['packages']);
     }
 
     /**
      * Checks whether the lock file is still up to date with the current hash
      *
-     * @return Boolean
+     * @return bool
      */
     public function isFresh()
     {
@@ -65,17 +83,36 @@ class Locker
     /**
      * Searches and returns an array of locked packages, retrieved from registered repositories.
      *
+     * @param  bool  $dev true to retrieve the locked dev packages
      * @return array
      */
-    public function getLockedPackages()
+    public function getLockedPackages($dev = false)
     {
-        $lockList = $this->getLockData();
+        $lockData = $this->getLockData();
         $packages = array();
-        foreach ($lockList['packages'] as $info) {
-            $package = $this->repositoryManager->getLocalRepository()->findPackage($info['package'], $info['version']);
 
+        $lockedPackages = $dev ? $lockData['packages-dev'] : $lockData['packages'];
+        $repo = $dev ? $this->repositoryManager->getLocalDevRepository() : $this->repositoryManager->getLocalRepository();
+
+        foreach ($lockedPackages as $info) {
+            $resolvedVersion = !empty($info['alias-version']) ? $info['alias-version'] : $info['version'];
+
+            // try to find the package in the local repo (best match)
+            $package = $repo->findPackage($info['package'], $resolvedVersion);
+
+            // try to find the package in any repo
             if (!$package) {
+                $package = $this->repositoryManager->findPackage($info['package'], $resolvedVersion);
+            }
+
+            // try to find the package in any repo (second pass without alias + rebuild alias since it disappeared)
+            if (!$package && !empty($info['alias-version'])) {
                 $package = $this->repositoryManager->findPackage($info['package'], $info['version']);
+                if ($package) {
+                    $alias = new AliasPackage($package, $info['alias-version'], $info['alias-pretty-version']);
+                    $package->getRepository()->addPackage($alias);
+                    $package = $alias;
+                }
             }
 
             if (!$package) {
@@ -91,27 +128,87 @@ class Locker
         return $packages;
     }
 
+    public function getMinimumStability()
+    {
+        $lockData = $this->getLockData();
+
+        return isset($lockData['minimum-stability']) ? $lockData['minimum-stability'] : 'stable';
+    }
+
+    public function getStabilityFlags()
+    {
+        $lockData = $this->getLockData();
+
+        return isset($lockData['stability-flags']) ? $lockData['stability-flags'] : array();
+    }
+
+    public function getAliases()
+    {
+        $lockData = $this->getLockData();
+
+        return isset($lockData['aliases']) ? $lockData['aliases'] : array();
+    }
+
     public function getLockData()
     {
-        if (!$this->isLocked()) {
+        if (null !== $this->lockDataCache) {
+            return $this->lockDataCache;
+        }
+
+        if (!$this->lockFile->exists()) {
             throw new \LogicException('No lockfile found. Unable to read locked packages');
         }
 
-        return $this->lockFile->read();
+        return $this->lockDataCache = $this->lockFile->read();
     }
 
     /**
-     * Locks provided packages into lockfile.
+     * Locks provided data into lockfile.
      *
      * @param array $packages array of packages
+     * @param mixed $packages array of dev packages or null if installed without --dev
+     * @param array $aliases  array of aliases
+     *
+     * @return bool
      */
-    public function lockPackages(array $packages)
+    public function setLockData(array $packages, $devPackages, array $aliases, $minimumStability, array $stabilityFlags)
     {
         $lock = array(
             'hash' => $this->hash,
-            'packages' => array(),
+            'packages' => null,
+            'packages-dev' => null,
+            'aliases' => $aliases,
+            'minimum-stability' => $minimumStability,
+            'stability-flags' => $stabilityFlags,
         );
+
+        $lock['packages'] = $this->lockPackages($packages);
+        if (null !== $devPackages) {
+            $lock['packages-dev'] = $this->lockPackages($devPackages);
+        }
+
+        if (!$this->isLocked() || $lock !== $this->getLockData()) {
+            $this->lockFile->write($lock);
+            $this->lockDataCache = null;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private function lockPackages(array $packages)
+    {
+        $locked = array();
+
         foreach ($packages as $package) {
+            $alias = null;
+
+            if ($package instanceof AliasPackage) {
+                $alias = $package;
+                $package = $package->getAliasOf();
+            }
+
             $name    = $package->getPrettyName();
             $version = $package->getPrettyVersion();
 
@@ -123,16 +220,38 @@ class Locker
 
             $spec = array('package' => $name, 'version' => $version);
 
-            if ($package->isDev()) {
+            if ($package->isDev() && !$alias) {
                 $spec['source-reference'] = $package->getSourceReference();
+                if ('git' === $package->getSourceType() && $path = $this->installationManager->getInstallPath($package)) {
+                    $process = new ProcessExecutor();
+                    if (0 === $process->execute('git log -n1 --pretty=%ct '.escapeshellarg($package->getSourceReference()), $output, $path)) {
+                        $spec['commit-date'] = trim($output);
+                    }
+                }
             }
 
-            $lock['packages'][] = $spec;
+            if ($alias) {
+                $spec['alias-pretty-version'] = $alias->getPrettyVersion();
+                $spec['alias-version'] = $alias->getVersion();
+            }
+
+            $locked[] = $spec;
         }
-        usort($lock['packages'], function ($a, $b) {
-            return strcmp($a['package'], $b['package']);
+
+        usort($locked, function ($a, $b) {
+            $comparison = strcmp($a['package'], $b['package']);
+
+            if (0 !== $comparison) {
+                return $comparison;
+            }
+
+            // If it is the same package, compare the versions to make the order deterministic
+            $aVersion = isset($a['alias-version']) ? $a['alias-version'] : $a['version'];
+            $bVersion = isset($b['alias-version']) ? $b['alias-version'] : $b['version'];
+
+            return strcmp($aVersion, $bVersion);
         });
 
-        $this->lockFile->write($lock);
+        return $locked;
     }
 }

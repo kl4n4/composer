@@ -18,13 +18,13 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Formatter\OutputFormatterStyle;
-use Symfony\Component\Finder\Finder;
 use Composer\Command;
 use Composer\Command\Helper\DialogHelper;
 use Composer\Composer;
 use Composer\Factory;
 use Composer\IO\IOInterface;
 use Composer\IO\ConsoleIO;
+use Composer\Util\ErrorHandler;
 
 /**
  * The console application that handles the commands
@@ -35,11 +35,19 @@ use Composer\IO\ConsoleIO;
  */
 class Application extends BaseApplication
 {
+    /**
+     * @var Composer
+     */
     protected $composer;
+
+    /**
+     * @var IOInterface
+     */
     protected $io;
 
     public function __construct()
     {
+        ErrorHandler::register();
         parent::__construct('Composer', Composer::VERSION);
     }
 
@@ -63,14 +71,24 @@ class Application extends BaseApplication
      */
     public function doRun(InputInterface $input, OutputInterface $output)
     {
-        $this->registerCommands();
         $this->io = new ConsoleIO($input, $output, $this->getHelperSet());
+
+        if (version_compare(PHP_VERSION, '5.3.2', '<')) {
+            $output->writeln('<warning>Composer only officially supports PHP 5.3.2 and above, you will most likely encounter problems with your PHP '.PHP_VERSION.', upgrading is strongly recommended.</warning>');
+        }
+
+        if (defined('COMPOSER_DEV_WARNING_TIME') && $this->getCommandName($input) !== 'self-update') {
+            if (time() > COMPOSER_DEV_WARNING_TIME) {
+                $output->writeln(sprintf('<warning>This dev build of composer is outdated, please run "%s self-update" to get the latest version.</warning>', $_SERVER['PHP_SELF']));
+            }
+        }
 
         return parent::doRun($input, $output);
     }
 
     /**
-     * @return Composer
+     * @param  bool               $required
+     * @return \Composer\Composer
      */
     public function getComposer($required = true)
     {
@@ -82,8 +100,6 @@ class Application extends BaseApplication
                     $this->io->write($e->getMessage());
                     exit(1);
                 }
-
-                return;
             }
         }
 
@@ -101,20 +117,27 @@ class Application extends BaseApplication
     /**
      * Initializes all the composer commands
      */
-    protected function registerCommands()
+    protected function getDefaultCommands()
     {
-        $this->add(new Command\AboutCommand());
-        $this->add(new Command\DependsCommand());
-        $this->add(new Command\InitCommand());
-        $this->add(new Command\InstallCommand());
-        $this->add(new Command\UpdateCommand());
-        $this->add(new Command\SearchCommand());
-        $this->add(new Command\ValidateCommand());
-        $this->add(new Command\ShowCommand());
+        $commands = parent::getDefaultCommands();
+        $commands[] = new Command\AboutCommand();
+        $commands[] = new Command\DependsCommand();
+        $commands[] = new Command\InitCommand();
+        $commands[] = new Command\InstallCommand();
+        $commands[] = new Command\CreateProjectCommand();
+        $commands[] = new Command\UpdateCommand();
+        $commands[] = new Command\SearchCommand();
+        $commands[] = new Command\ValidateCommand();
+        $commands[] = new Command\ShowCommand();
+        $commands[] = new Command\RequireCommand();
+        $commands[] = new Command\DumpAutoloadCommand();
+        $commands[] = new Command\StatusCommand();
 
         if ('phar:' === substr(__FILE__, 0, 5)) {
-            $this->add(new Command\SelfUpdateCommand());
+            $commands[] = new Command\SelfUpdateCommand();
         }
+
+        return $commands;
     }
 
     /**

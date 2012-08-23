@@ -12,14 +12,12 @@ libraries is that your project is a package without a name.
 In order to make that package installable you need to give it a name. You do
 this by adding a `name` to `composer.json`:
 
-```json
-{
-    "name": "acme/hello-world",
-    "require": {
-        "monolog/monolog": "1.0.*"
+    {
+        "name": "acme/hello-world",
+        "require": {
+            "monolog/monolog": "1.0.*"
+        }
     }
-}
-```
 
 In this case the project name is `acme/hello-world`, where `acme` is the
 vendor name. Supplying a vendor name is mandatory.
@@ -30,20 +28,18 @@ convention is all lowercase and dashes for word separation.
 
 ## Specifying the version
 
-You need to specify the version some way. Depending on the type of repository
-you are using, it might be possible to omit it from `composer.json`, because
-the repository is able to infer the version from elsewhere.
+You need to specify the package's version some way. When you publish your
+package on Packagist, it is able to infer the version from the VCS (git, svn,
+hg) information, so in that case you do not have to specify it, and it is
+recommended not to. See [tags](#tags) and [branches](#branches) to see how
+version numbers are extracted from these.
 
-If you do want to specify it explicitly, you can just add a `version` field:
+If you are creating packages by hand and really have to specify it explicitly,
+you can just add a `version` field:
 
-```json
-{
-    "version": "1.0.0"
-}
-```
-
-However if you are using git, svn or hg, you don't have to specify it.
-Composer will detect versions as follows:
+    {
+        "version": "1.0.0"
+    }
 
 ### Tags
 
@@ -66,31 +62,64 @@ Here are a few examples of valid tag names:
 
 For every branch, a package development version will be created. If the branch
 name looks like a version, the version will be `{branchname}-dev`. For example
-a branch `2.0` will get a version `2.0-dev`. If the branch does not look like
-a version, it will be `dev-{branchname}`. `master` results in a `dev-master`
-version.
+a branch `2.0` will get a version `2.0.x-dev` (the `.x` is added for technical
+reasons, to make sure it is recognized as a branch, a `2.0.x` branch would also
+be valid and be turned into `2.0.x-dev` as well. If the branch does not look
+like a version, it will be `dev-{branchname}`. `master` results in a
+`dev-master` version.
 
 Here are some examples of version branch names:
 
-    1.0
-    1.*
+    1.x
+    1.0 (equals 1.0.x)
     1.1.x
-    1.1.*
 
 > **Note:** When you install a dev version, it will install it from source.
-See [Repositories] for more information.
+
+### Aliases
+
+It is possible alias branch names to versions. For example, you could alias
+`dev-master` to `1.0.x-dev`, which would allow you to require `1.0.x-dev` in all
+the packages.
+
+See [Aliases](articles/aliases.md) for more information.
 
 ## Lock file
 
-For projects it is recommended to commit the `composer.lock` file into version
-control. For libraries this is not the case. You do not want your library to
-be tied to exact versions of the dependencies. It should work with any
-compatible version, so make sure you specify your version constraints so that
-they include all compatible versions.
+For your library you may commit the `composer.lock` file if you want to. This
+can help your team to always test against the same dependency versions.
+However, this lock file will not have any effect on other projects that depend
+on it. It only has an effect on the main project.
 
-**Do not commit your library's `composer.lock` into version control.**
+If you do not want to commit the lock file and you are using git, add it to
+the `.gitignore`.
 
-If you are using git, add it to the `.gitignore`.
+## Light-weight distribution packages
+
+Including the tests and other useless information like .travis.yml in
+distributed packages is not a good idea.
+
+The `.gitattributes` file is a git specific file like `.gitignore` also living
+at the root directory of your library. It overrides local and global
+configuration (`.git/config` and `~/.gitconfig` respectively) when present and
+tracked by git.
+
+Use `.gitattributes` to prevent unwanted files from bloating the zip
+distribution packages.
+
+    // .gitattributes
+    Tests/ export-ignore
+    phpunit.xml.dist export-ignore
+    Resources/doc/ export-ignore
+    .travis.yml export-ignore
+
+Test it by inspecting the zip file generated manually:
+
+    git archive branchName --format zip -o file.zip
+
+> **Note:** files would be still tracked by git just not included in the
+> distribution. This will only work for GitHub packages installed from
+> dist (i.e. tagged releases) for now.
 
 ## Publishing to a VCS
 
@@ -100,19 +129,17 @@ example we will publish the `acme/hello-world` library on GitHub under
 `github.com/composer/hello-world`.
 
 Now, To test installing the `acme/hello-world` package, we create a new
-project locally. We will call it `acme/blog`. This blog will depend on `acme
-/hello-world`, which in turn depends on `monolog/monolog`. We can accomplish
-this by creating a new `blog` directory somewhere, containing a
+project locally. We will call it `acme/blog`. This blog will depend on
+`acme/hello-world`, which in turn depends on `monolog/monolog`. We can
+accomplish this by creating a new `blog` directory somewhere, containing a
 `composer.json`:
 
-```json
-{
-    "name": "acme/blog",
-    "require": {
-        "acme/hello-world": "dev-master"
+    {
+        "name": "acme/blog",
+        "require": {
+            "acme/hello-world": "dev-master"
+        }
     }
-}
-```
 
 The name is not needed in this case, since we don't want to publish the blog
 as a library. It is added here to clarify which `composer.json` is being
@@ -122,22 +149,21 @@ Now we need to tell the blog app where to find the `hello-world` dependency.
 We do this by adding a package repository specification to the blog's
 `composer.json`:
 
-```json
-{
-    "name": "acme/blog",
-    "repositories": {
-        "acme/hello-world": {
-            "vcs": { "url": "https://github.com/composer/hello-world" }
+    {
+        "name": "acme/blog",
+        "repositories": [
+            {
+                "type": "vcs",
+                "url": "https://github.com/composer/hello-world"
+            }
+        ],
+        "require": {
+            "acme/hello-world": "dev-master"
         }
-    },
-    "require": {
-        "acme/hello-world": "dev-master"
     }
-}
-```
 
 For more details on how package repositories work and what other types are
-available, see [Repositories].
+available, see [Repositories](05-repositories.md).
 
 That's all. You can now install the dependencies by running composer's
 `install` command!
@@ -154,15 +180,17 @@ every time is cumbersome. You don't want to force all your users to do that.
 The other thing that you may have noticed is that we did not specify a package
 repository for `monolog/monolog`. How did that work? The answer is packagist.
 
-Packagist is the main package repository for composer, and it is enabled by
-default. Anything that is published on packagist is available automatically
-through composer. Since monolog [is on
-packagist](http://packagist.org/packages/monolog/monolog), we can depend on it
-without having to specify any additional repositories.
+[Packagist](http://packagist.org/) is the main package repository for
+composer, and it is enabled by default. Anything that is published on
+packagist is available automatically through composer. Since monolog
+[is on packagist](http://packagist.org/packages/monolog/monolog), we can depend
+on it without having to specify any additional repositories.
 
-Assuming we want to share `hello-world` with the world, we would want to
-publish it on packagist as well. And this is really easy.
+If we wanted to share `hello-world` with the world, we would publish it on
+packagist as well. Doing so is really easy.
 
 You simply hit the big "Submit Package" button and sign up. Then you submit
-the URL to your VCS, at which point packagist will start crawling it. Once it
-is done, your package will be available to anyone.
+the URL to your VCS repository, at which point packagist will start crawling
+it. Once it is done, your package will be available to anyone.
+
+&larr; [Basic usage](01-basic-usage.md) |  [Command-line interface](03-cli.md) &rarr;

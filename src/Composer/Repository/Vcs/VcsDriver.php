@@ -12,6 +12,8 @@
 
 namespace Composer\Repository\Vcs;
 
+use Composer\Downloader\TransportException;
+use Composer\Config;
 use Composer\IO\IOInterface;
 use Composer\Util\ProcessExecutor;
 use Composer\Util\RemoteFilesystem;
@@ -21,24 +23,45 @@ use Composer\Util\RemoteFilesystem;
  *
  * @author François Pluchino <francois.pluchino@opendisplay.com>
  */
-abstract class VcsDriver
+abstract class VcsDriver implements VcsDriverInterface
 {
     protected $url;
+    protected $originUrl;
     protected $io;
+    protected $config;
     protected $process;
+    protected $remoteFilesystem;
 
     /**
      * Constructor.
      *
-     * @param string      $url The URL
-     * @param IOInterface $io  The IO instance
-     * @param ProcessExecutor $process  Process instance, injectable for mocking
+     * @param string          $url              The URL
+     * @param IOInterface     $io               The IO instance
+     * @param Config          $config           The composer configuration
+     * @param ProcessExecutor $process          Process instance, injectable for mocking
+     * @param callable        $remoteFilesystem Remote Filesystem, injectable for mocking
      */
-    public function __construct($url, IOInterface $io, ProcessExecutor $process = null)
+    final public function __construct($url, IOInterface $io, Config $config, ProcessExecutor $process = null, $remoteFilesystem = null)
     {
         $this->url = $url;
+        $this->originUrl = $url;
         $this->io = $io;
+        $this->config = $config;
         $this->process = $process ?: new ProcessExecutor;
+        $this->remoteFilesystem = $remoteFilesystem ?: new RemoteFilesystem($io);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function hasComposerFile($identifier)
+    {
+        try {
+            return (bool) $this->getComposerInformation($identifier);
+        } catch (TransportException $e) {
+        }
+
+        return false;
     }
 
 	/**
@@ -65,6 +88,7 @@ abstract class VcsDriver
         if (extension_loaded('openssl')) {
             return 'https';
         }
+
         return 'http';
     }
 
@@ -77,12 +101,11 @@ abstract class VcsDriver
      */
     protected function getContents($url)
     {
-        $rfs = new RemoteFilesystem($this->io);
-        return $rfs->getContents($this->url, $url, false);
+        return $this->remoteFilesystem->getContents($this->originUrl, $url, false);
     }
 
     protected static function isLocalUrl($url)
     {
-        return (Boolean) preg_match('{^(file://|/|[a-z]:[\\\\/])}i', $url);
+        return (bool) preg_match('{^(file://|/|[a-z]:[\\\\/])}i', $url);
     }
 }

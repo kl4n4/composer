@@ -12,8 +12,6 @@
 
 namespace Composer\DependencyResolver\Operation;
 
-use Composer\Package\PackageInterface;
-
 /**
  * Solver operation interface.
  *
@@ -24,21 +22,21 @@ interface OperationInterface
     /**
      * Returns job type.
      *
-     * @return  string
+     * @return string
      */
-    function getJobType();
+    public function getJobType();
 
     /**
      * Returns operation reason.
      *
-     * @return  string
+     * @return string
      */
-    function getReason();
+    public function getReason();
 
     /**
      * Serializes the operation in a human readable format
      *
      * @return string
      */
-    function __toString();
+    public function __toString();
 }

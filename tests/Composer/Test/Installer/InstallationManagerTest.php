@@ -19,6 +19,11 @@ use Composer\DependencyResolver\Operation\UninstallOperation;
 
 class InstallationManagerTest extends \PHPUnit_Framework_TestCase
 {
+    public function setUp()
+    {
+        $this->repository = $this->getMock('Composer\Repository\InstalledRepositoryInterface');
+    }
+
     public function testAddGetInstaller()
     {
         $installer = $this->createInstallerMock();
@@ -43,7 +48,6 @@ class InstallationManagerTest extends \PHPUnit_Framework_TestCase
     {
         $manager = $this->getMockBuilder('Composer\Installer\InstallationManager')
             ->setMethods(array('install', 'update', 'uninstall'))
-            ->setConstructorArgs(array('vendor'))
             ->getMock();
 
         $installOperation = new InstallOperation($this->createPackageMock());
@@ -55,19 +59,19 @@ class InstallationManagerTest extends \PHPUnit_Framework_TestCase
         $manager
             ->expects($this->once())
             ->method('install')
-            ->with($installOperation);
+            ->with($this->repository, $installOperation);
         $manager
             ->expects($this->once())
             ->method('uninstall')
-            ->with($removeOperation);
+            ->with($this->repository, $removeOperation);
         $manager
             ->expects($this->once())
             ->method('update')
-            ->with($updateOperation);
+            ->with($this->repository, $updateOperation);
 
-        $manager->execute($installOperation);
-        $manager->execute($removeOperation);
-        $manager->execute($updateOperation);
+        $manager->execute($this->repository, $installOperation);
+        $manager->execute($this->repository, $removeOperation);
+        $manager->execute($this->repository, $updateOperation);
     }
 
     public function testInstall()
@@ -93,9 +97,9 @@ class InstallationManagerTest extends \PHPUnit_Framework_TestCase
         $installer
             ->expects($this->once())
             ->method('install')
-            ->with($package);
+            ->with($this->repository, $package);
 
-        $manager->install($operation);
+        $manager->install($this->repository, $operation);
     }
 
     public function testUpdateWithEqualTypes()
@@ -126,9 +130,9 @@ class InstallationManagerTest extends \PHPUnit_Framework_TestCase
         $installer
             ->expects($this->once())
             ->method('update')
-            ->with($initial, $target);
+            ->with($this->repository, $initial, $target);
 
-        $manager->update($operation);
+        $manager->update($this->repository, $operation);
     }
 
     public function testUpdateWithNotEqualTypes()
@@ -168,14 +172,14 @@ class InstallationManagerTest extends \PHPUnit_Framework_TestCase
         $libInstaller
             ->expects($this->once())
             ->method('uninstall')
-            ->with($initial);
+            ->with($this->repository, $initial);
 
         $bundleInstaller
             ->expects($this->once())
             ->method('install')
-            ->with($target);
+            ->with($this->repository, $target);
 
-        $manager->update($operation);
+        $manager->update($this->repository, $operation);
     }
 
     public function testUninstall()
@@ -195,7 +199,7 @@ class InstallationManagerTest extends \PHPUnit_Framework_TestCase
         $installer
             ->expects($this->once())
             ->method('uninstall')
-            ->with($package);
+            ->with($this->repository, $package);
 
         $installer
             ->expects($this->once())
@@ -203,19 +207,7 @@ class InstallationManagerTest extends \PHPUnit_Framework_TestCase
             ->with('library')
             ->will($this->returnValue(true));
 
-        $manager->uninstall($operation);
-    }
-
-    public function testGetVendorPathAbsolute()
-    {
-        $manager = new InstallationManager('vendor');
-        $this->assertEquals(getcwd().DIRECTORY_SEPARATOR.'vendor', $manager->getVendorPath(true));
-    }
-
-    public function testGetVendorPathRelative()
-    {
-        $manager = new InstallationManager('vendor');
-        $this->assertEquals('vendor', $manager->getVendorPath());
+        $manager->uninstall($this->repository, $operation);
     }
 
     private function createInstallerMock()

@@ -37,6 +37,16 @@ class CompositeRepository implements RepositoryInterface
     }
 
     /**
+     * Returns all the wrapped repositories
+     *
+     * @return array
+     */
+    public function getRepositories()
+    {
+        return $this->repositories;
+    }
+
+    /**
      * {@inheritdoc}
      */
     public function hasPackage(PackageInterface $package)
@@ -47,6 +57,7 @@ class CompositeRepository implements RepositoryInterface
                 return true;
             }
         }
+
         return false;
     }
 
@@ -62,19 +73,21 @@ class CompositeRepository implements RepositoryInterface
                 return $package;
             }
         }
+
         return null;
     }
 
     /**
      * {@inheritdoc}
      */
-    public function findPackagesByName($name)
+    public function findPackages($name, $version = null)
     {
         $packages = array();
         foreach ($this->repositories as $repository) {
             /* @var $repository RepositoryInterface */
-            $packages[] = $repository->findPackagesByName($name);
+            $packages[] = $repository->findPackages($name, $version);
         }
+
         return call_user_func_array('array_merge', $packages);
     }
 
@@ -88,7 +101,19 @@ class CompositeRepository implements RepositoryInterface
             /* @var $repository RepositoryInterface */
             $packages[] = $repository->getPackages();
         }
+
         return call_user_func_array('array_merge', $packages);
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function removePackage(PackageInterface $package)
+    {
+        foreach ($this->repositories as $repository) {
+            /* @var $repository RepositoryInterface */
+            $repository->removePackage($package);
+        }
     }
 
     /**
@@ -101,6 +126,7 @@ class CompositeRepository implements RepositoryInterface
             /* @var $repository RepositoryInterface */
             $total += $repository->count();
         }
+
         return $total;
     }
 

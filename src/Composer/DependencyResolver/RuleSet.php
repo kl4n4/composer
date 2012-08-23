@@ -20,16 +20,12 @@ class RuleSet implements \IteratorAggregate, \Countable
     // highest priority => lowest number
     const TYPE_PACKAGE = 0;
     const TYPE_JOB = 1;
-    const TYPE_FEATURE = 3;
-    const TYPE_CHOICE = 4;
-    const TYPE_LEARNED = 5;
+    const TYPE_LEARNED = 4;
 
     protected static $types = array(
         -1 => 'UNKNOWN',
         self::TYPE_PACKAGE => 'PACKAGE',
-        self::TYPE_FEATURE => 'FEATURE',
         self::TYPE_JOB => 'JOB',
-        self::TYPE_CHOICE => 'CHOICE',
         self::TYPE_LEARNED => 'LEARNED',
     );
 
@@ -97,34 +93,29 @@ class RuleSet implements \IteratorAggregate, \Countable
 
     public function getIteratorFor($types)
     {
-        if (!is_array($types))
-        {
+        if (!is_array($types)) {
             $types = array($types);
         }
 
         $allRules = $this->getRules();
         $rules = array();
 
-        foreach ($types as $type)
-        {
+        foreach ($types as $type) {
             $rules[$type] = $allRules[$type];
         }
 
         return new RuleSetIterator($rules);
     }
 
-
     public function getIteratorWithout($types)
     {
-        if (!is_array($types))
-        {
+        if (!is_array($types)) {
             $types = array($types);
         }
 
         $rules = $this->getRules();
 
-        foreach ($types as $type)
-        {
+        foreach ($types as $type) {
             unset($rules[$type]);
         }
 
@@ -135,6 +126,7 @@ class RuleSet implements \IteratorAggregate, \Countable
     {
         $types = self::$types;
         unset($types[-1]);
+
         return array_keys($types);
     }
 

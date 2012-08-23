@@ -12,11 +12,10 @@
 
 namespace Composer\Installer;
 
+use Composer\Composer;
 use Composer\IO\IOInterface;
 use Composer\Autoload\AutoloadGenerator;
-use Composer\Downloader\DownloadManager;
-use Composer\Repository\WritableRepositoryInterface;
-use Composer\DependencyResolver\Operation\OperationInterface;
+use Composer\Repository\InstalledRepositoryInterface;
 use Composer\Package\PackageInterface;
 
 /**
@@ -30,20 +29,19 @@ class InstallerInstaller extends LibraryInstaller
     private static $classCounter = 0;
 
     /**
-     * @param   string                      $vendorDir  relative path for packages home
-     * @param   string                      $binDir     relative path for binaries
-     * @param   DownloadManager             $dm         download manager
-     * @param   WritableRepositoryInterface $repository repository controller
-     * @param   IOInterface                 $io         io instance
+     * @param IOInterface $io
+     * @param Composer    $composer
      */
-    public function __construct($vendorDir, $binDir, DownloadManager $dm, WritableRepositoryInterface $repository, IOInterface $io, InstallationManager $im)
+    public function __construct(IOInterface $io, Composer $composer, $type = 'library')
     {
-        parent::__construct($vendorDir, $binDir, $dm, $repository, $io, 'composer-installer');
-        $this->installationManager = $im;
+        parent::__construct($io, $composer, 'composer-installer');
+        $this->installationManager = $composer->getInstallationManager();
 
-        foreach ($repository->getPackages() as $package) {
-            if ('composer-installer' === $package->getType()) {
-                $this->registerInstaller($package);
+        foreach ($composer->getRepositoryManager()->getLocalRepositories() as $repo) {
+            foreach ($repo->getPackages() as $package) {
+                if ('composer-installer' === $package->getType()) {
+                    $this->registerInstaller($package);
+                }
             }
         }
     }
@@ -51,28 +49,28 @@ class InstallerInstaller extends LibraryInstaller
     /**
      * {@inheritDoc}
      */
-    public function install(PackageInterface $package)
+    public function install(InstalledRepositoryInterface $repo, PackageInterface $package)
     {
         $extra = $package->getExtra();
         if (empty($extra['class'])) {
             throw new \UnexpectedValueException('Error while installing '.$package->getPrettyName().', composer-installer packages should have a class defined in their extra key to be usable.');
         }
 
-        parent::install($package);
+        parent::install($repo, $package);
         $this->registerInstaller($package);
     }
 
     /**
      * {@inheritDoc}
      */
-    public function update(PackageInterface $initial, PackageInterface $target)
+    public function update(InstalledRepositoryInterface $repo, PackageInterface $initial, PackageInterface $target)
     {
         $extra = $target->getExtra();
         if (empty($extra['class'])) {
             throw new \UnexpectedValueException('Error while installing '.$target->getPrettyName().', composer-installer packages should have a class defined in their extra key to be usable.');
         }
 
-        parent::update($initial, $target);
+        parent::update($repo, $initial, $target);
         $this->registerInstaller($target);
     }
 
@@ -81,23 +79,24 @@ class InstallerInstaller extends LibraryInstaller
         $downloadPath = $this->getInstallPath($package);
 
         $extra = $package->getExtra();
-        $class = $extra['class'];
+        $classes = is_array($extra['class']) ? $extra['class'] : array($extra['class']);
 
         $generator = new AutoloadGenerator;
         $map = $generator->parseAutoloads(array(array($package, $downloadPath)));
         $classLoader = $generator->createLoader($map);
         $classLoader->register();
 
-        if (class_exists($class, false)) {
-            $code = file_get_contents($classLoader->findFile($class));
-            $code = preg_replace('{^class\s+(\S+)}mi', 'class $1_composer_tmp'.self::$classCounter, $code);
-            eval('?>'.$code);
-            $class .= '_composer_tmp'.self::$classCounter;
-            self::$classCounter++;
-        }
+        foreach ($classes as $class) {
+            if (class_exists($class, false)) {
+                $code = file_get_contents($classLoader->findFile($class));
+                $code = preg_replace('{^class\s+(\S+)}mi', 'class $1_composer_tmp'.self::$classCounter, $code);
+                eval('?>'.$code);
+                $class .= '_composer_tmp'.self::$classCounter;
+                self::$classCounter++;
+            }
 
-        $extra = $package->getExtra();
-        $installer = new $class($this->vendorDir, $this->binDir, $this->downloadManager, $this->repository);
-        $this->installationManager->addInstaller($installer);
+            $installer = new $class($this->io, $this->composer);
+            $this->installationManager->addInstaller($installer);
+        }
     }
 }

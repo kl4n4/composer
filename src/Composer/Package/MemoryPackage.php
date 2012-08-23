@@ -12,6 +12,8 @@
 
 namespace Composer\Package;
 
+use Composer\Package\Version\VersionParser;
+
 /**
  * A package with setters for all members to create it dynamically in memory
  *
@@ -41,21 +43,30 @@ class MemoryPackage extends BasePackage
     protected $extra = array();
     protected $binaries = array();
     protected $scripts = array();
+    protected $aliases = array();
+    protected $alias;
+    protected $prettyAlias;
     protected $dev;
+
+    protected $minimumStability = 'stable';
+    protected $stabilityFlags = array();
+    protected $references = array();
 
     protected $requires = array();
     protected $conflicts = array();
     protected $provides = array();
     protected $replaces = array();
-    protected $recommends = array();
+    protected $devRequires = array();
     protected $suggests = array();
     protected $autoload = array();
+    protected $includePaths = array();
+    protected $support = array();
 
     /**
      * Creates a new in memory package.
      *
-     * @param string $name        The package's name
-     * @param string $version     The package's version
+     * @param string $name          The package's name
+     * @param string $version       The package's version
      * @param string $prettyVersion The package's non-normalized version
      */
     public function __construct($name, $version, $prettyVersion)
@@ -65,7 +76,8 @@ class MemoryPackage extends BasePackage
         $this->version = $version;
         $this->prettyVersion = $prettyVersion;
 
-        $this->dev = 'dev-' === substr($version, 0, 4) || '-dev' === substr($version, -4);
+        $this->stability = VersionParser::parseStability($version);
+        $this->dev = $this->stability === 'dev';
     }
 
     /**
@@ -90,6 +102,14 @@ class MemoryPackage extends BasePackage
     public function getType()
     {
         return $this->type ?: 'library';
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getStability()
+    {
+        return $this->stability;
     }
 
     /**
@@ -154,6 +174,54 @@ class MemoryPackage extends BasePackage
     public function getScripts()
     {
         return $this->scripts;
+    }
+
+    /**
+     * @param array $aliases
+     */
+    public function setAliases(array $aliases)
+    {
+        $this->aliases = $aliases;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getAliases()
+    {
+        return $this->aliases;
+    }
+
+    /**
+     * @param string $alias
+     */
+    public function setAlias($alias)
+    {
+        $this->alias = $alias;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getAlias()
+    {
+        return $this->alias;
+    }
+
+    /**
+     * @param string $prettyAlias
+     */
+    public function setPrettyAlias($prettyAlias)
+    {
+        $this->prettyAlias = $prettyAlias;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getPrettyAlias()
+    {
+        return $this->prettyAlias;
     }
 
     /**
@@ -411,25 +479,25 @@ class MemoryPackage extends BasePackage
     /**
      * Set the recommended packages
      *
-     * @param array $recommends A set of package links
+     * @param array $devRequires A set of package links
      */
-    public function setRecommends(array $recommends)
+    public function setDevRequires(array $devRequires)
     {
-        $this->recommends = $recommends;
+        $this->devRequires = $devRequires;
     }
 
     /**
      * {@inheritDoc}
      */
-    public function getRecommends()
+    public function getDevRequires()
     {
-        return $this->recommends;
+        return $this->devRequires;
     }
 
     /**
      * Set the suggested packages
      *
-     * @param array $suggests A set of package links
+     * @param array $suggests A set of package names/comments
      */
     public function setSuggests(array $suggests)
     {
@@ -535,6 +603,60 @@ class MemoryPackage extends BasePackage
     }
 
     /**
+     * Set the minimumStability
+     *
+     * @param string $minimumStability
+     */
+    public function setMinimumStability($minimumStability)
+    {
+        $this->minimumStability = $minimumStability;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getMinimumStability()
+    {
+        return $this->minimumStability;
+    }
+
+    /**
+     * Set the stabilityFlags
+     *
+     * @param array $stabilityFlags
+     */
+    public function setStabilityFlags(array $stabilityFlags)
+    {
+        $this->stabilityFlags = $stabilityFlags;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getStabilityFlags()
+    {
+        return $this->stabilityFlags;
+    }
+
+    /**
+     * Set the references
+     *
+     * @param array $references
+     */
+    public function setReferences(array $references)
+    {
+        $this->references = $references;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getReferences()
+    {
+        return $this->references;
+    }
+
+    /**
      * Set the autoload mapping
      *
      * @param array $autoload Mapping of autoloading rules
@@ -550,5 +672,41 @@ class MemoryPackage extends BasePackage
     public function getAutoload()
     {
         return $this->autoload;
+    }
+
+    /**
+     * Sets the list of paths added to PHP's include path.
+     *
+     * @param array $includePaths List of directories.
+     */
+    public function setIncludePaths(array $includePaths)
+    {
+        $this->includePaths = $includePaths;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getIncludePaths()
+    {
+        return $this->includePaths;
+    }
+
+    /**
+     * Set the support information
+     *
+     * @param array $support
+     */
+    public function setSupport(array $support)
+    {
+        $this->support = $support;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getSupport()
+    {
+        return $this->support;
     }
 }

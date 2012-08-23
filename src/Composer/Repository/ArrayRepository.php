@@ -12,6 +12,7 @@
 
 namespace Composer\Repository;
 
+use Composer\Package\AliasPackage;
 use Composer\Package\PackageInterface;
 use Composer\Package\Version\VersionParser;
 
@@ -23,6 +24,13 @@ use Composer\Package\Version\VersionParser;
 class ArrayRepository implements RepositoryInterface
 {
     protected $packages;
+
+    public function __construct(array $packages = array())
+    {
+        foreach ($packages as $package) {
+            $this->addPackage($package);
+        }
+    }
 
     /**
      * {@inheritDoc}
@@ -44,14 +52,21 @@ class ArrayRepository implements RepositoryInterface
     /**
      * {@inheritDoc}
      */
-    public function findPackagesByName($name)
+    public function findPackages($name, $version = null)
     {
         // normalize name
         $name = strtolower($name);
+
+        // normalize version
+        if (null !== $version) {
+            $versionParser = new VersionParser();
+            $version = $versionParser->normalize($version);
+        }
+
         $packages = array();
 
         foreach ($this->getPackages() as $package) {
-            if ($package->getName() === $name) {
+            if ($package->getName() === $name && (null === $version || $version === $package->getVersion())) {
                 $packages[] = $package;
             }
         }
@@ -87,12 +102,25 @@ class ArrayRepository implements RepositoryInterface
         }
         $package->setRepository($this);
         $this->packages[] = $package;
+
+        // create alias package on the fly if needed
+        if ($package->getAlias()) {
+            $alias = $this->createAliasPackage($package);
+            if (!$this->hasPackage($alias)) {
+                $this->addPackage($alias);
+            }
+        }
+    }
+
+    protected function createAliasPackage(PackageInterface $package, $alias = null, $prettyAlias = null)
+    {
+        return new AliasPackage($package, $alias ?: $package->getAlias(), $prettyAlias ?: $package->getPrettyAlias());
     }
 
     /**
      * Removes package from repository.
      *
-     * @param   PackageInterface    $package    package instance
+     * @param PackageInterface $package package instance
      */
     public function removePackage(PackageInterface $package)
     {
@@ -115,6 +143,7 @@ class ArrayRepository implements RepositoryInterface
         if (null === $this->packages) {
             $this->initialize();
         }
+
         return $this->packages;
     }
 

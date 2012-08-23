@@ -13,9 +13,10 @@
 namespace Composer\Command;
 
 use Composer\Json\JsonFile;
+use Composer\Factory;
+use Composer\Package\BasePackage;
 use Composer\Repository\CompositeRepository;
 use Composer\Repository\PlatformRepository;
-use Composer\Repository\ComposerRepository;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -33,8 +34,8 @@ class InitCommand extends Command
 
     public function parseAuthorString($author)
     {
-        if (preg_match('/^(?P<name>[- \.,a-z0-9]+) <(?P<email>.+?)>$/i', $author, $match)) {
-            if ($match['email'] === filter_var($match['email'], FILTER_VALIDATE_EMAIL)) {
+        if (preg_match('/^(?P<name>[- \.,\w\'’]+) <(?P<email>.+?)>$/u', $author, $match)) {
+            if (!function_exists('filter_var') || version_compare(PHP_VERSION, '5.3.3', '<') || $match['email'] === filter_var($match['email'], FILTER_VALIDATE_EMAIL)) {
                 return array(
                     'name'  => trim($match['name']),
                     'email' => $match['email']
@@ -54,12 +55,14 @@ class InitCommand extends Command
             ->setName('init')
             ->setDescription('Creates a basic composer.json file in current directory.')
             ->setDefinition(array(
-                new InputOption('name', null, InputOption::VALUE_NONE, 'Name of the package'),
-                new InputOption('description', null, InputOption::VALUE_NONE, 'Description of package'),
-                new InputOption('author', null, InputOption::VALUE_NONE, 'Author name of package'),
+                new InputOption('name', null, InputOption::VALUE_REQUIRED, 'Name of the package'),
+                new InputOption('description', null, InputOption::VALUE_REQUIRED, 'Description of package'),
+                new InputOption('author', null, InputOption::VALUE_REQUIRED, 'Author name of package'),
                 // new InputOption('version', null, InputOption::VALUE_NONE, 'Version of package'),
-                new InputOption('homepage', null, InputOption::VALUE_NONE, 'Homepage of package'),
-                new InputOption('require', null, InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'An array required packages'),
+                new InputOption('homepage', null, InputOption::VALUE_REQUIRED, 'Homepage of package'),
+                new InputOption('require', null, InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'Package to require with a version constraint, e.g. foo/bar:1.0.0 or foo/bar=1.0.0 or "foo/bar 1.0.0"'),
+                new InputOption('require-dev', null, InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'Package to require for development with a version constraint, e.g. foo/bar:1.0.0 or foo/bar=1.0.0 or "foo/bar 1.0.0"'),
+                new InputOption('minimum-stability', null, InputOption::VALUE_REQUIRED, 'Minimum stability (empty or one of: '.implode(', ', array_keys(BasePackage::$stabilities)).')'),
             ))
             ->setHelp(<<<EOT
 The <info>init</info> command creates a basic composer.json file
@@ -76,7 +79,7 @@ EOT
     {
         $dialog = $this->getHelperSet()->get('dialog');
 
-        $whitelist = array('name', 'description', 'author', 'require');
+        $whitelist = array('name', 'description', 'author', 'homepage', 'require', 'require-dev', 'minimum-stability');
 
         $options = array_filter(array_intersect_key($input->getOptions(), array_flip($whitelist)));
 
@@ -88,6 +91,10 @@ EOT
         $options['require'] = isset($options['require']) ?
             $this->formatRequirements($options['require']) :
             new \stdClass;
+
+        if (isset($options['require-dev'])) {
+            $options['require-dev'] = $this->formatRequirements($options['require-dev']) ;
+        }
 
         $file = new JsonFile('composer.json');
 
@@ -146,7 +153,7 @@ EOT
 
         $cwd = realpath(".");
 
-        if (false === $name = $input->getOption('name')) {
+        if (!$name = $input->getOption('name')) {
             $name = basename($cwd);
             if (isset($git['github.user'])) {
                 $name = $git['github.user'] . '/' . $name;
@@ -186,7 +193,7 @@ EOT
         );
         $input->setOption('description', $description);
 
-        if (false === $author = $input->getOption('author')) {
+        if (null === $author = $input->getOption('author')) {
             if (isset($git['user.name']) && isset($git['user.email'])) {
                 $author = sprintf('%s <%s>', $git['user.name'], $git['user.email']);
             }
@@ -208,6 +215,27 @@ EOT
         );
         $input->setOption('author', $author);
 
+        $minimumStability = $input->getOption('minimum-stability') ?: '';
+        $minimumStability = $dialog->askAndValidate(
+            $output,
+            $dialog->getQuestion('Minimum Stability', $minimumStability),
+            function ($value) use ($self, $minimumStability) {
+                if (null === $value) {
+                    return $minimumStability;
+                }
+
+                if (!isset(BasePackage::$stabilities[$value])) {
+                    throw new \InvalidArgumentException(
+                        'Invalid minimum stability "'.$value.'". Must be empty or one of: '.
+                        implode(', ', array_keys(BasePackage::$stabilities))
+                    );
+                }
+
+                return $value;
+            }
+        );
+        $input->setOption('minimum-stability', $minimumStability);
+
         $output->writeln(array(
             '',
             'Define your dependencies.',
@@ -215,10 +243,15 @@ EOT
         ));
 
         $requirements = array();
-        if ($dialog->askConfirmation($output, $dialog->getQuestion('Would you like to define your dependencies interactively', 'yes', '?'), true)) {
-            $requirements = $this->determineRequirements($input, $output);
+        if ($dialog->askConfirmation($output, $dialog->getQuestion('Would you like to define your dependencies (require) interactively', 'yes', '?'), true)) {
+            $requirements = $this->determineRequirements($input, $output, $input->getOption('require'));
         }
         $input->setOption('require', $requirements);
+        $devRequirements = array();
+        if ($dialog->askConfirmation($output, $dialog->getQuestion('Would you like to define your dev dependencies (require-dev) interactively', 'yes', '?'), true)) {
+            $devRequirements = $this->determineRequirements($input, $output, $input->getOption('require-dev'));
+        }
+        $input->setOption('require-dev', $devRequirements);
     }
 
     protected function findPackages($name)
@@ -227,9 +260,9 @@ EOT
 
         // init repos
         if (!$this->repos) {
-            $this->repos = new CompositeRepository(array(
-                new PlatformRepository,
-                new ComposerRepository(array('url' => 'http://packagist.org'))
+            $this->repos = new CompositeRepository(array_merge(
+                array(new PlatformRepository),
+                Factory::createDefaultRepositories($this->getIO())
             ));
         }
 
@@ -245,12 +278,27 @@ EOT
         return $packages;
     }
 
-    protected function determineRequirements(InputInterface $input, OutputInterface $output)
+    protected function determineRequirements(InputInterface $input, OutputInterface $output, $requires = array())
     {
         $dialog = $this->getHelperSet()->get('dialog');
         $prompt = $dialog->getQuestion('Search for a package', false, ':');
 
-        $requires = $input->getOption('require') ?: array();
+        if ($requires) {
+            foreach ($requires as $key => $requirement) {
+                $requires[$key] = $this->normalizeRequirement($requirement);
+                if (false === strpos($requires[$key], ' ') && $input->isInteractive()) {
+                    $question = $dialog->getQuestion('Please provide a version constraint for the '.$requirement.' requirement');
+                    if ($constraint = $dialog->ask($output, $question)) {
+                        $requires[$key] .= ' ' . $constraint;
+                    }
+                }
+                if (false === strpos($requires[$key], ' ')) {
+                    throw new \InvalidArgumentException('The requirement '.$requirement.' must contain a version constraint');
+                }
+            }
+
+            return $requires;
+        }
 
         while (null !== $package = $dialog->ask($output, $prompt)) {
             $matches = $this->findPackages($package);
@@ -286,7 +334,7 @@ EOT
                     return sprintf('%s %s', $package->getName(), $package->getPrettyVersion());
                 };
 
-                $package = $dialog->askAndValidate($output, $dialog->getQuestion('Enter package # to add, or a <package> <version> couple if it is not listed', false, ':'), $validator, 3);
+                $package = $dialog->askAndValidate($output, $dialog->getQuestion('Enter package # to add, or a "[package] [version]" couple if it is not listed', false, ':'), $validator, 3);
 
                 if (false !== $package) {
                     $requires[] = $package;
@@ -306,12 +354,18 @@ EOT
     {
         $requires = array();
         foreach ($requirements as $requirement) {
+            $requirement = $this->normalizeRequirement($requirement);
             list($packageName, $packageVersion) = explode(" ", $requirement, 2);
 
             $requires[$packageName] = $packageVersion;
         }
 
         return empty($requires) ? new \stdClass : $requires;
+    }
+
+    protected function normalizeRequirement($requirement)
+    {
+        return preg_replace('{^([^=: ]+)[=: ](.*)$}', '$1 $2', $requirement);
     }
 
     protected function getGitConfig()
@@ -323,11 +377,17 @@ EOT
         $finder = new ExecutableFinder();
         $gitBin = $finder->find('git');
 
-        $cmd = new Process(sprintf('%s config -l', $gitBin));
+        $cmd = new Process(sprintf('%s config -l', escapeshellarg($gitBin)));
         $cmd->run();
 
         if ($cmd->isSuccessful()) {
-            return $this->gitConfig = parse_ini_string($cmd->getOutput(), false, INI_SCANNER_RAW);
+            $this->gitConfig = array();
+            preg_match_all('{^([^=]+)=(.*)$}m', $cmd->getOutput(), $matches, PREG_SET_ORDER);
+            foreach ($matches as $match) {
+                $this->gitConfig[$match[1]] = $match[2];
+            }
+
+            return $this->gitConfig;
         }
 
         return $this->gitConfig = array();
@@ -347,7 +407,7 @@ EOT
      * @param string $ignoreFile
      * @param string $vendor
      *
-     * @return Boolean
+     * @return bool
      */
     protected function hasVendorIgnore($ignoreFile, $vendor = 'vendor')
     {

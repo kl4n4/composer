@@ -17,7 +17,9 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Output\OutputInterface;
 use Composer\Repository\CompositeRepository;
 use Composer\Repository\PlatformRepository;
-use Composer\Repository\ComposerRepository;
+use Composer\Package\PackageInterface;
+use Composer\Package\AliasPackage;
+use Composer\Factory;
 
 /**
  * @author Robert Schönthal <seroscho@googlemail.com>
@@ -50,26 +52,91 @@ EOT
             $installedRepo = new CompositeRepository(array($localRepo, $platformRepo));
             $repos = new CompositeRepository(array_merge(array($installedRepo), $composer->getRepositoryManager()->getRepositories()));
         } else {
-            $output->writeln('No composer.json found in the current directory, showing packages from packagist.org');
+            $defaultRepos = Factory::createDefaultRepositories($this->getIO());
+            $output->writeln('No composer.json found in the current directory, showing packages from ' . implode(', ', array_keys($defaultRepos)));
             $installedRepo = $platformRepo;
-            $repos = new CompositeRepository(array($installedRepo, new ComposerRepository(array('url' => 'http://packagist.org'))));
+            $repos = new CompositeRepository(array_merge(array($installedRepo), $defaultRepos));
         }
 
-        $tokens = array_map('strtolower', $input->getArgument('tokens'));
+        $tokens = $input->getArgument('tokens');
+        $packages = array();
+
+        $maxPackageLength = 0;
         foreach ($repos->getPackages() as $package) {
+            if ($package instanceof AliasPackage || isset($packages[$package->getName()])) {
+                continue;
+            }
+
             foreach ($tokens as $token) {
-                if (false === ($pos = strpos($package->getName(), $token))) {
+                if (!$score = $this->matchPackage($package, $token)) {
                     continue;
                 }
 
-                $state = $localRepo->hasPackage($package) ? '<info>installed</info>' : $state = '<comment>available</comment>';
+                if (false !== ($pos = stripos($package->getName(), $token))) {
+                    $name = substr($package->getPrettyName(), 0, $pos)
+                        . '<highlight>' . substr($package->getPrettyName(), $pos, strlen($token)) . '</highlight>'
+                        . substr($package->getPrettyName(), $pos + strlen($token));
+                } else {
+                    $name = $package->getPrettyName();
+                }
 
-                $name = substr($package->getPrettyName(), 0, $pos)
-                    . '<highlight>' . substr($package->getPrettyName(), $pos, strlen($token)) . '</highlight>'
-                    . substr($package->getPrettyName(), $pos + strlen($token));
-                $output->writeln($state . ': ' . $name . ' <comment>' . $package->getPrettyVersion() . '</comment>');
+                $description = strtok($package->getDescription(), "\r\n");
+                if (false !== ($pos = stripos($description, $token))) {
+                    $description = substr($description, 0, $pos)
+                        . '<highlight>' . substr($description, $pos, strlen($token)) . '</highlight>'
+                        . substr($description, $pos + strlen($token));
+                }
+
+                $packages[$package->getName()] = array(
+                    'name' => $name,
+                    'description' => $description,
+                    'length' => $length = strlen($package->getPrettyName()),
+                    'score' => $score,
+                );
+
+                $maxPackageLength = max($maxPackageLength, $length);
+
                 continue 2;
             }
         }
+
+        usort($packages, function ($a, $b) {
+            if ($a['score'] === $b['score']) {
+                return 0;
+            }
+
+            return $a['score'] > $b['score'] ? -1 : 1;
+        });
+
+        foreach ($packages as $details) {
+            $extraSpaces = $maxPackageLength - $details['length'];
+            $output->writeln($details['name'] . str_repeat(' ', $extraSpaces) .' <comment>:</comment> '. $details['description']);
+        }
+    }
+
+    /**
+     * tries to find a token within the name/keywords/description
+     *
+     * @param  PackageInterface $package
+     * @param  string           $token
+     * @return boolean
+     */
+    private function matchPackage(PackageInterface $package, $token)
+    {
+        $score = 0;
+
+        if (false !== stripos($package->getName(), $token)) {
+            $score += 5;
+        }
+
+        if (false !== stripos(join(',', $package->getKeywords() ?: array()), $token)) {
+            $score += 3;
+        }
+
+        if (false !== stripos($package->getDescription(), $token)) {
+            $score += 1;
+        }
+
+        return $score;
     }
 }

@@ -13,10 +13,16 @@
 namespace Composer\Installer;
 
 use Composer\Package\PackageInterface;
+use Composer\Package\AliasPackage;
+use Composer\Repository\RepositoryInterface;
+use Composer\Repository\NotifiableRepositoryInterface;
+use Composer\Repository\InstalledRepositoryInterface;
 use Composer\DependencyResolver\Operation\OperationInterface;
 use Composer\DependencyResolver\Operation\InstallOperation;
 use Composer\DependencyResolver\Operation\UpdateOperation;
 use Composer\DependencyResolver\Operation\UninstallOperation;
+use Composer\DependencyResolver\Operation\MarkAliasInstalledOperation;
+use Composer\DependencyResolver\Operation\MarkAliasUninstalledOperation;
 
 /**
  * Package operation manager.
@@ -28,32 +34,11 @@ class InstallationManager
 {
     private $installers = array();
     private $cache = array();
-    private $vendorPath;
-
-    /**
-     * Creates an instance of InstallationManager
-     *
-     * @param    string    $vendorDir    Relative path to the vendor directory
-     * @throws   \InvalidArgumentException
-     */
-    public function __construct($vendorDir = 'vendor')
-    {
-        if (substr($vendorDir, 0, 1) === '/' || substr($vendorDir, 1, 1) === ':') {
-            $basePath = getcwd();
-            if (0 !== strpos($vendorDir, $basePath)) {
-                throw new \InvalidArgumentException("Vendor dir ($vendorDir) must be within the current working directory ($basePath).");
-            }
-            // convert to relative path
-            $this->vendorPath = rtrim(substr($vendorDir, strlen($basePath)+1), '/');
-        } else {
-            $this->vendorPath = rtrim($vendorDir, '/');
-        }
-    }
 
     /**
      * Adds installer
      *
-     * @param   InstallerInterface  $installer  installer instance
+     * @param InstallerInterface $installer installer instance
      */
     public function addInstaller(InstallerInterface $installer)
     {
@@ -62,13 +47,31 @@ class InstallationManager
     }
 
     /**
+     * Disables custom installers.
+     *
+     * We prevent any custom installers from being instantiated by simply
+     * deactivating the installer for them. This ensure that no third-party
+     * code is ever executed.
+     */
+    public function disableCustomInstallers()
+    {
+        foreach ($this->installers as $i => $installer) {
+            if (!$installer instanceof InstallerInstaller) {
+                continue;
+            }
+
+            unset($this->installers[$i]);
+        }
+    }
+
+    /**
      * Returns installer for a specific package type.
      *
-     * @param   string              $type       package type
+     * @param string $type package type
      *
-     * @return  InstallerInterface
+     * @return InstallerInterface
      *
-     * @throws  InvalidArgumentException        if installer for provided type is not registered
+     * @throws InvalidArgumentException if installer for provided type is not registered
      */
     public function getInstaller($type)
     {
@@ -90,100 +93,128 @@ class InstallationManager
     /**
      * Checks whether provided package is installed in one of the registered installers.
      *
-     * @param   PackageInterface    $package    package instance
+     * @param InstalledRepositoryInterface $repo    repository in which to check
+     * @param PackageInterface             $package package instance
      *
-     * @return  Boolean
+     * @return bool
      */
-    public function isPackageInstalled(PackageInterface $package)
+    public function isPackageInstalled(InstalledRepositoryInterface $repo, PackageInterface $package)
     {
-        foreach ($this->installers as $installer) {
-            if ($installer->isInstalled($package)) {
-                return true;
-            }
+        if ($package instanceof AliasPackage) {
+            return $repo->hasPackage($package) && $this->isPackageInstalled($repo, $package->getAliasOf());
         }
 
-        return false;
+        return $this->getInstaller($package->getType())->isInstalled($repo, $package);
     }
 
     /**
      * Executes solver operation.
      *
-     * @param   OperationInterface  $operation  operation instance
+     * @param RepositoryInterface $repo      repository in which to check
+     * @param OperationInterface  $operation operation instance
      */
-    public function execute(OperationInterface $operation)
+    public function execute(RepositoryInterface $repo, OperationInterface $operation)
     {
         $method = $operation->getJobType();
-        $this->$method($operation);
+        $this->$method($repo, $operation);
     }
 
     /**
      * Executes install operation.
      *
-     * @param   InstallOperation    $operation  operation instance
+     * @param RepositoryInterface $repo      repository in which to check
+     * @param InstallOperation    $operation operation instance
      */
-    public function install(InstallOperation $operation)
+    public function install(RepositoryInterface $repo, InstallOperation $operation)
     {
-        $installer = $this->getInstaller($operation->getPackage()->getType());
-        $installer->install($operation->getPackage());
+        $package = $operation->getPackage();
+        $installer = $this->getInstaller($package->getType());
+        $installer->install($repo, $package);
+        $this->notifyInstall($package);
     }
 
     /**
      * Executes update operation.
      *
-     * @param   InstallOperation    $operation  operation instance
+     * @param RepositoryInterface $repo      repository in which to check
+     * @param InstallOperation    $operation operation instance
      */
-    public function update(UpdateOperation $operation)
+    public function update(RepositoryInterface $repo, UpdateOperation $operation)
     {
         $initial = $operation->getInitialPackage();
-        $target  = $operation->getTargetPackage();
+        $target = $operation->getTargetPackage();
 
         $initialType = $initial->getType();
         $targetType  = $target->getType();
 
         if ($initialType === $targetType) {
             $installer = $this->getInstaller($initialType);
-            $installer->update($initial, $target);
+            $installer->update($repo, $initial, $target);
+            $this->notifyInstall($target);
         } else {
-            $this->getInstaller($initialType)->uninstall($initial);
-            $this->getInstaller($targetType)->install($target);
+            $this->getInstaller($initialType)->uninstall($repo, $initial);
+            $this->getInstaller($targetType)->install($repo, $target);
         }
     }
 
     /**
      * Uninstalls package.
      *
-     * @param   UninstallOperation  $operation  operation instance
+     * @param RepositoryInterface $repo      repository in which to check
+     * @param UninstallOperation  $operation operation instance
      */
-    public function uninstall(UninstallOperation $operation)
+    public function uninstall(RepositoryInterface $repo, UninstallOperation $operation)
     {
-        $installer = $this->getInstaller($operation->getPackage()->getType());
-        $installer->uninstall($operation->getPackage());
+        $package = $operation->getPackage();
+        $installer = $this->getInstaller($package->getType());
+        $installer->uninstall($repo, $package);
+    }
+
+    /**
+     * Executes markAliasInstalled operation.
+     *
+     * @param RepositoryInterface         $repo      repository in which to check
+     * @param MarkAliasInstalledOperation $operation operation instance
+     */
+    public function markAliasInstalled(RepositoryInterface $repo, MarkAliasInstalledOperation $operation)
+    {
+        $package = $operation->getPackage();
+
+        if (!$repo->hasPackage($package)) {
+            $repo->addPackage(clone $package);
+        }
+    }
+
+    /**
+     * Executes markAlias operation.
+     *
+     * @param RepositoryInterface           $repo      repository in which to check
+     * @param MarkAliasUninstalledOperation $operation operation instance
+     */
+    public function markAliasUninstalled(RepositoryInterface $repo, MarkAliasUninstalledOperation $operation)
+    {
+        $package = $operation->getPackage();
+
+        $repo->removePackage($package);
     }
 
     /**
      * Returns the installation path of a package
      *
-     * @param   PackageInterface    $package
-     * @return  string path
+     * @param  PackageInterface $package
+     * @return string           path
      */
     public function getInstallPath(PackageInterface $package)
     {
         $installer = $this->getInstaller($package->getType());
+
         return $installer->getInstallPath($package);
     }
 
-    /**
-     * Returns the vendor path
-     *
-     * @param   boolean  $absolute  Whether or not to return an absolute path
-     * @return  string path
-     */
-    public function getVendorPath($absolute = false)
+    private function notifyInstall(PackageInterface $package)
     {
-        if (!$absolute) {
-            return $this->vendorPath;
+        if ($package->getRepository() instanceof NotifiableRepositoryInterface) {
+            $package->getRepository()->notifyInstall($package);
         }
-
-        return getcwd().DIRECTORY_SEPARATOR.$this->vendorPath;
     }
 }

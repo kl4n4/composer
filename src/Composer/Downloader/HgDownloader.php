@@ -13,7 +13,6 @@
 namespace Composer\Downloader;
 
 use Composer\Package\PackageInterface;
-use Composer\Util\ProcessExecutor;
 
 /**
  * @author Per Bernhardt <plb@webfactory.de>
@@ -29,7 +28,10 @@ class HgDownloader extends VcsDownloader
         $ref = escapeshellarg($package->getSourceReference());
         $path = escapeshellarg($path);
         $this->io->write("    Cloning ".$package->getSourceReference());
-        $this->process->execute(sprintf('hg clone %s %s && cd %2$s && hg up %s', $url, $path, $ref), $ignoredOutput);
+        $command = sprintf('hg clone %s %s && cd %2$s && hg up %s', $url, $path, $ref);
+        if (0 !== $this->process->execute($command, $ignoredOutput)) {
+            throw new \RuntimeException('Failed to execute ' . $command . "\n\n" . $this->process->getErrorOutput());
+        }
     }
 
     /**
@@ -37,20 +39,37 @@ class HgDownloader extends VcsDownloader
      */
     public function doUpdate(PackageInterface $initial, PackageInterface $target, $path)
     {
+        $url = escapeshellarg($target->getSourceUrl());
         $ref = escapeshellarg($target->getSourceReference());
         $path = escapeshellarg($path);
         $this->io->write("    Updating to ".$target->getSourceReference());
-        $this->process->execute(sprintf('cd %s && hg pull && hg up %s', $path, $ref), $ignoredOutput);
+        $command = sprintf('cd %s && hg pull %s && hg up %s', $path, $url, $ref);
+        if (0 !== $this->process->execute($command, $ignoredOutput)) {
+            throw new \RuntimeException('Failed to execute ' . $command . "\n\n" . $this->process->getErrorOutput());
+        }
     }
 
     /**
      * {@inheritDoc}
      */
-    protected function enforceCleanDirectory($path)
+    public function getLocalChanges($path)
     {
         $this->process->execute(sprintf('cd %s && hg st', escapeshellarg($path)), $output);
-        if (trim($output)) {
-            throw new \RuntimeException('Source directory has uncommitted changes');
+
+        return trim($output) ?: null;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    protected function getCommitLogs($fromReference, $toReference, $path)
+    {
+        $command = sprintf('cd %s && hg log -r %s:%s --style compact', escapeshellarg($path), $fromReference, $toReference);
+
+        if (0 !== $this->process->execute($command, $output)) {
+            throw new \RuntimeException('Failed to execute ' . $command . "\n\n" . $this->process->getErrorOutput());
         }
+
+        return $output;
     }
 }

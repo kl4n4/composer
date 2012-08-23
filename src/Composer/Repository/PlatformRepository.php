@@ -20,7 +20,6 @@ use Composer\Package\Version\VersionParser;
  */
 class PlatformRepository extends ArrayRepository
 {
-
     protected function initialize()
     {
         parent::initialize();
@@ -36,14 +35,18 @@ class PlatformRepository extends ArrayRepository
         }
 
         $php = new MemoryPackage('php', $version, $prettyVersion);
+        $php->setDescription('The PHP interpreter');
         parent::addPackage($php);
 
-        foreach (get_loaded_extensions() as $ext) {
-            if (in_array($ext, array('standard', 'Core'))) {
+        $loadedExtensions = get_loaded_extensions();
+
+        // Extensions scanning
+        foreach ($loadedExtensions as $name) {
+            if (in_array($name, array('standard', 'Core'))) {
                 continue;
             }
 
-            $reflExt = new \ReflectionExtension($ext);
+            $reflExt = new \ReflectionExtension($name);
             try {
                 $prettyVersion = $reflExt->getVersion();
                 $version = $versionParser->normalize($prettyVersion);
@@ -52,8 +55,61 @@ class PlatformRepository extends ArrayRepository
                 $version = $versionParser->normalize($prettyVersion);
             }
 
-            $ext = new MemoryPackage('ext-'.strtolower($ext), $version, $prettyVersion);
+            $ext = new MemoryPackage('ext-'.$name, $version, $prettyVersion);
+            $ext->setDescription('The '.$name.' PHP extension');
             parent::addPackage($ext);
+        }
+
+        // Another quick loop, just for possible libraries
+        // Doing it this way to know that functions or constants exist before
+        // relying on them.
+        foreach ($loadedExtensions as $name) {
+            switch ($name) {
+                case 'curl':
+                    $curlVersion = curl_version();
+                    $prettyVersion = $curlVersion['version'];
+                    break;
+
+                case 'iconv':
+                    $prettyVersion = ICONV_VERSION;
+                    break;
+
+                case 'libxml':
+                    $prettyVersion = LIBXML_DOTTED_VERSION;
+                    break;
+
+                case 'openssl':
+                    $prettyVersion = preg_replace_callback('{^(?:OpenSSL\s*)?([0-9.]+)([a-z]?).*}', function ($match) {
+                        return $match[1] . (empty($match[2]) ? '' : '.'.(ord($match[2]) - 96));
+                    }, OPENSSL_VERSION_TEXT);
+                    break;
+
+                case 'pcre':
+                    $prettyVersion = preg_replace('{^(\S+).*}', '$1', PCRE_VERSION);
+                    break;
+
+                case 'uuid':
+                    $prettyVersion = phpversion('uuid');
+                    break;
+
+                case 'xsl':
+                    $prettyVersion = LIBXSLT_DOTTED_VERSION;
+                    break;
+
+                default:
+                    // None handled extensions have no special cases, skip
+                    continue 2;
+            }
+
+            try {
+                $version = $versionParser->normalize($prettyVersion);
+            } catch (\UnexpectedValueException $e) {
+                continue;
+            }
+
+            $lib = new MemoryPackage('lib-'.$name, $version, $prettyVersion);
+            $lib->setDescription('The '.$name.' PHP library');
+            parent::addPackage($lib);
         }
     }
 }

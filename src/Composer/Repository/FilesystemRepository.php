@@ -13,7 +13,7 @@
 namespace Composer\Repository;
 
 use Composer\Json\JsonFile;
-use Composer\Package\PackageInterface;
+use Composer\Package\AliasPackage;
 use Composer\Package\Loader\ArrayLoader;
 use Composer\Package\Dumper\ArrayDumper;
 
@@ -21,6 +21,7 @@ use Composer\Package\Dumper\ArrayDumper;
  * Filesystem repository.
  *
  * @author Konstantin Kudryashov <ever.zet@gmail.com>
+ * @author Jordi Boggiano <j.boggiano@seld.be>
  */
 class FilesystemRepository extends ArrayRepository implements WritableRepositoryInterface
 {
@@ -29,7 +30,7 @@ class FilesystemRepository extends ArrayRepository implements WritableRepository
     /**
      * Initializes filesystem repository.
      *
-     * @param   JsonFile    $repositoryFile repository json file
+     * @param JsonFile $repositoryFile repository json file
      */
     public function __construct(JsonFile $repositoryFile)
     {
@@ -54,9 +55,16 @@ class FilesystemRepository extends ArrayRepository implements WritableRepository
         }
 
         $loader = new ArrayLoader();
-        foreach ($packages as $package) {
-            $this->addPackage($loader->load($package));
+        foreach ($packages as $packageData) {
+            $package = $loader->load($packageData);
+            $this->addPackage($package);
         }
+    }
+
+    public function reload()
+    {
+        $this->packages = null;
+        $this->initialize();
     }
 
     /**
@@ -67,7 +75,10 @@ class FilesystemRepository extends ArrayRepository implements WritableRepository
         $packages = array();
         $dumper   = new ArrayDumper();
         foreach ($this->getPackages() as $package) {
-            $packages[] = $dumper->dump($package);
+            if (!$package instanceof AliasPackage) {
+                $data = $dumper->dump($package);
+                $packages[] = $data;
+            }
         }
 
         $this->file->write($packages);

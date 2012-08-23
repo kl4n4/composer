@@ -13,10 +13,11 @@
 namespace Composer\Downloader;
 
 use Composer\Package\PackageInterface;
-use Composer\Util\ProcessExecutor;
+use Composer\Util\Svn as SvnUtil;
 
 /**
  * @author Ben Bieker <mail@ben-bieker.de>
+ * @author Till Klampaeckel <till@php.net>
  */
 class SvnDownloader extends VcsDownloader
 {
@@ -25,11 +26,11 @@ class SvnDownloader extends VcsDownloader
      */
     public function doDownload(PackageInterface $package, $path)
     {
-        $url = escapeshellarg($package->getSourceUrl());
-        $ref = escapeshellarg($package->getSourceReference());
-        $path = escapeshellarg($path);
+        $url =  $package->getSourceUrl();
+        $ref =  $package->getSourceReference();
+
         $this->io->write("    Checking out ".$package->getSourceReference());
-        $this->process->execute(sprintf('svn co %s/%s %s', $url, $ref, $path));
+        $this->execute($url, "svn co", sprintf("%s/%s", $url, $ref), null, $path);
     }
 
     /**
@@ -37,21 +38,58 @@ class SvnDownloader extends VcsDownloader
      */
     public function doUpdate(PackageInterface $initial, PackageInterface $target, $path)
     {
-        $ref = escapeshellarg($target->getSourceReference());
-        $path = escapeshellarg($path);
-        $url = escapeshellarg($target->getSourceUrl());
-        $this->io->write("    Checking out ".$target->getSourceReference());
-        $this->process->execute(sprintf('cd %s && svn switch %s/%s', $path, $url, $ref));
+        $url = $target->getSourceUrl();
+        $ref = $target->getSourceReference();
+
+        $this->io->write("    Checking out " . $ref);
+        $this->execute($url, "svn switch", sprintf("%s/%s", $url, $ref), $path);
     }
 
     /**
      * {@inheritDoc}
      */
-    protected function enforceCleanDirectory($path)
+    public function getLocalChanges($path)
     {
-        $this->process->execute(sprintf('cd %s && svn status', escapeshellarg($path)), $output);
-        if (trim($output)) {
-            throw new \RuntimeException('Source directory has uncommitted changes');
+        $this->process->execute('svn status --ignore-externals', $output, $path);
+
+        return preg_match('{^ *[^X ] +}m', $output) ? $output : null;
+    }
+
+    /**
+     * Execute an SVN command and try to fix up the process with credentials
+     * if necessary.
+     *
+     * @param string $baseUrl Base URL of the repository
+     * @param string $command SVN command to run
+     * @param string $url     SVN url
+     * @param string $cwd     Working directory
+     * @param string $path    Target for a checkout
+     *
+     * @return string
+     */
+    protected function execute($baseUrl, $command, $url, $cwd = null, $path = null)
+    {
+        $util = new SvnUtil($baseUrl, $this->io);
+        try {
+            return $util->execute($command, $url, $cwd, $path, $this->io->isVerbose());
+        } catch (\RuntimeException $e) {
+            throw new \RuntimeException(
+                'Package could not be downloaded, '.$e->getMessage()
+            );
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    protected function getCommitLogs($fromReference, $toReference, $path)
+    {
+        $command = sprintf('cd %s && svn log -r%s:%s --incremental', escapeshellarg($path), $fromReference, $toReference);
+
+        if (0 !== $this->process->execute($command, $output)) {
+            throw new \RuntimeException('Failed to execute ' . $command . "\n\n" . $this->process->getErrorOutput());
+        }
+
+        return $output;
     }
 }

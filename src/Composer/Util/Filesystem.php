@@ -14,18 +14,35 @@ namespace Composer\Util;
 
 /**
  * @author Jordi Boggiano <j.boggiano@seld.be>
+ * @author Johannes M. Schmitt <schmittjoh@gmail.com>
  */
 class Filesystem
 {
+    private $processExecutor;
+
+    public function __construct(ProcessExecutor $executor = null)
+    {
+        $this->processExecutor = $executor ?: new ProcessExecutor();
+    }
+
     public function removeDirectory($directory)
     {
+        if (!is_dir($directory)) {
+            return true;
+        }
+
         if (defined('PHP_WINDOWS_VERSION_BUILD')) {
             $cmd = sprintf('rmdir /S /Q %s', escapeshellarg(realpath($directory)));
         } else {
             $cmd = sprintf('rm -rf %s', escapeshellarg($directory));
         }
 
-        return $this->getProcess()->execute($cmd) === 0;
+        $result = $this->getProcess()->execute($cmd) === 0;
+
+        // clear stat cache because external processes aren't tracked by the php stat cache
+        clearstatcache();
+
+        return $result && !is_dir($directory);
     }
 
     public function ensureDirectoryExists($directory)
@@ -44,24 +61,49 @@ class Filesystem
         }
     }
 
+    public function rename($source, $target)
+    {
+        if (defined('PHP_WINDOWS_VERSION_BUILD')) {
+            rename($source, $target);
+
+            return;
+        }
+
+        // We do not use PHP's "rename" function here since it does not support
+        // the case where $source, and $target are located on different partitions.
+        if (0 !== $this->processExecutor->execute('mv '.escapeshellarg($source).' '.escapeshellarg($target))) {
+            if (true === @rename($source, $target)) {
+                return;
+            }
+
+            throw new \RuntimeException(sprintf('Could not rename "%s" to "%s".', $source, $target));
+        }
+    }
+
     /**
      * Returns the shortest path from $from to $to
      *
-     * @param string $from
-     * @param string $to
+     * @param  string $from
+     * @param  string $to
+     * @param  bool   $directories if true, the source/target are considered to be directories
      * @return string
      */
-    public function findShortestPath($from, $to)
+    public function findShortestPath($from, $to, $directories = false)
     {
         if (!$this->isAbsolutePath($from) || !$this->isAbsolutePath($to)) {
-            throw new \InvalidArgumentException('from and to must be absolute paths');
+            throw new \InvalidArgumentException(sprintf('$from (%s) and $to (%s) must be absolute paths.', $from, $to));
+        }
+
+        $from = lcfirst(rtrim(strtr($from, '\\', '/'), '/'));
+        $to = lcfirst(rtrim(strtr($to, '\\', '/'), '/'));
+
+        if ($directories) {
+            $from .= '/dummy_file';
         }
 
         if (dirname($from) === dirname($to)) {
             return './'.basename($to);
         }
-        $from = lcfirst(rtrim(strtr($from, '\\', '/'), '/'));
-        $to = lcfirst(rtrim(strtr($to, '\\', '/'), '/'));
 
         $commonPath = $to;
         while (strpos($from, $commonPath) !== 0 && '/' !== $commonPath && !preg_match('{^[a-z]:/?$}i', $commonPath) && '.' !== $commonPath) {
@@ -75,28 +117,30 @@ class Filesystem
         $commonPath = rtrim($commonPath, '/') . '/';
         $sourcePathDepth = substr_count(substr($from, strlen($commonPath)), '/');
         $commonPathCode = str_repeat('../', $sourcePathDepth);
+
         return ($commonPathCode . substr($to, strlen($commonPath))) ?: './';
     }
 
     /**
      * Returns PHP code that, when executed in $from, will return the path to $to
      *
-     * @param string $from
-     * @param string $to
-     * @param Boolean $directories if true, the source/target are considered to be directories
+     * @param  string $from
+     * @param  string $to
+     * @param  bool   $directories if true, the source/target are considered to be directories
      * @return string
      */
     public function findShortestPathCode($from, $to, $directories = false)
     {
         if (!$this->isAbsolutePath($from) || !$this->isAbsolutePath($to)) {
-            throw new \InvalidArgumentException('from and to must be absolute paths');
+            throw new \InvalidArgumentException(sprintf('$from (%s) and $to (%s) must be absolute paths.', $from, $to));
         }
+
+        $from = lcfirst(strtr($from, '\\', '/'));
+        $to = lcfirst(strtr($to, '\\', '/'));
 
         if ($from === $to) {
             return $directories ? '__DIR__' : '__FILE__';
         }
-        $from = lcfirst(strtr($from, '\\', '/'));
-        $to = lcfirst(strtr($to, '\\', '/'));
 
         $commonPath = $to;
         while (strpos($from, $commonPath) !== 0 && '/' !== $commonPath && !preg_match('{^[a-z]:/?$}i', $commonPath) && '.' !== $commonPath) {
@@ -114,14 +158,15 @@ class Filesystem
         $sourcePathDepth = substr_count(substr($from, strlen($commonPath)), '/') + $directories;
         $commonPathCode = str_repeat('dirname(', $sourcePathDepth).'__DIR__'.str_repeat(')', $sourcePathDepth);
         $relTarget = substr($to, strlen($commonPath));
+
         return $commonPathCode . (strlen($relTarget) ? '.' . var_export('/' . $relTarget, true) : '');
     }
 
     /**
      * Checks if the given path is absolute
      *
-     * @param string $path
-     * @return Boolean
+     * @param  string $path
+     * @return bool
      */
     public function isAbsolutePath($path)
     {

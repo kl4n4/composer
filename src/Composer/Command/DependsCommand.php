@@ -13,7 +13,6 @@
 namespace Composer\Command;
 
 use Composer\Composer;
-use Composer\Package\PackageInterface;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
@@ -25,7 +24,10 @@ use Symfony\Component\Console\Output\OutputInterface;
  */
 class DependsCommand extends Command
 {
-    protected $linkTypes = array('require', 'recommend', 'suggest');
+    protected $linkTypes = array(
+        'require' => 'requires',
+        'require-dev' => 'devRequires',
+    );
 
     protected function configure()
     {
@@ -34,7 +36,7 @@ class DependsCommand extends Command
             ->setDescription('Shows which packages depend on the given package')
             ->setDefinition(array(
                 new InputArgument('package', InputArgument::REQUIRED, 'Package to inspect'),
-                new InputOption('link-type', '', InputOption::VALUE_OPTIONAL | InputOption::VALUE_IS_ARRAY, 'Link types to show', $this->linkTypes)
+                new InputOption('link-type', '', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Link types to show (require, require-dev)', array_keys($this->linkTypes))
             ))
             ->setHelp(<<<EOT
 Displays detailed information about where a package is referenced.
@@ -61,9 +63,9 @@ EOT
     /**
      * finds a list of packages which depend on another package
      *
-     * @param InputInterface $input
-     * @param OutputInterface $output
-     * @param Composer $composer
+     * @param  InputInterface            $input
+     * @param  OutputInterface           $output
+     * @param  Composer                  $composer
      * @return array
      * @throws \InvalidArgumentException
      */
@@ -72,7 +74,7 @@ EOT
         $needle = $input->getArgument('package');
 
         $references = array();
-        $verbose = (Boolean) $input->getOption('verbose');
+        $verbose = (bool) $input->getOption('verbose');
 
         $repos = $composer->getRepositoryManager()->getRepositories();
         $types = $input->getOption('link-type');
@@ -81,10 +83,10 @@ EOT
             foreach ($repository->getPackages() as $package) {
                 foreach ($types as $type) {
                     $type = rtrim($type, 's');
-                    if (!in_array($type, $this->linkTypes)) {
-                        throw new \InvalidArgumentException('Unexpected link type: '.$type.', valid types: '.implode(', ', $this->linkTypes));
+                    if (!isset($this->linkTypes[$type])) {
+                        throw new \InvalidArgumentException('Unexpected link type: '.$type.', valid types: '.implode(', ', array_keys($this->linkTypes)));
                     }
-                    foreach ($package->{'get'.$type.'s'}() as $link) {
+                    foreach ($package->{'get'.$this->linkTypes[$type]}() as $link) {
                         if ($link->getTarget() === $needle) {
                             if ($verbose) {
                                 $references[] = array($type, $package, $link);

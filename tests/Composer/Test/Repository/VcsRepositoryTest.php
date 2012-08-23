@@ -10,33 +10,38 @@
  * file that was distributed with this source code.
  */
 
-namespace Composer\Test\Json;
+namespace Composer\Test\Repository;
 
 use Symfony\Component\Process\ExecutableFinder;
 use Composer\Package\Dumper\ArrayDumper;
 use Composer\Repository\VcsRepository;
-use Composer\Repository\Vcs\GitDriver;
 use Composer\Util\Filesystem;
 use Composer\Util\ProcessExecutor;
 use Composer\IO\NullIO;
+use Composer\Config;
 
+/**
+ * @group slow
+ */
 class VcsRepositoryTest extends \PHPUnit_Framework_TestCase
 {
     private static $gitRepo;
-    private static $skipped;
+    private $skipped;
 
-    public static function setUpBeforeClass()
+    protected function initialize()
     {
         $oldCwd = getcwd();
         self::$gitRepo = sys_get_temp_dir() . '/composer-git-'.rand().'/';
 
         $locator = new ExecutableFinder();
         if (!$locator->find('git')) {
-            self::$skipped = 'This test needs a git binary in the PATH to be able to run';
+            $this->skipped = 'This test needs a git binary in the PATH to be able to run';
+
             return;
         }
         if (!mkdir(self::$gitRepo) || !chdir(self::$gitRepo)) {
-            self::$skipped = 'Could not create and move into the temp git repo '.self::$gitRepo;
+            $this->skipped = 'Could not create and move into the temp git repo '.self::$gitRepo;
+
             return;
         }
 
@@ -87,7 +92,7 @@ class VcsRepositoryTest extends \PHPUnit_Framework_TestCase
         $process->execute('git branch 1.0', $null);
 
         // add 1.0.x branch
-        $process->execute('git branch 1.0.x', $null);
+        $process->execute('git branch 1.1.x', $null);
 
         // update master to 2.0
         $composer['version'] = '2.0.0';
@@ -100,8 +105,11 @@ class VcsRepositoryTest extends \PHPUnit_Framework_TestCase
 
     public function setUp()
     {
-        if (self::$skipped) {
-            $this->markTestSkipped(self::$skipped);
+        if (!self::$gitRepo) {
+            $this->initialize();
+        }
+        if ($this->skipped) {
+            $this->markTestSkipped($this->skipped);
         }
     }
 
@@ -116,14 +124,14 @@ class VcsRepositoryTest extends \PHPUnit_Framework_TestCase
         $expected = array(
             '0.6.0' => true,
             '1.0.0' => true,
-            '1.0-dev' => true,
             '1.0.x-dev' => true,
+            '1.1.x-dev' => true,
             'dev-feature-b' => true,
             'dev-feature-a' => true,
             'dev-master' => true,
         );
 
-        $repo = new VcsRepository(array('url' => self::$gitRepo), new NullIO);
+        $repo = new VcsRepository(array('url' => self::$gitRepo, 'type' => 'vcs'), new NullIO, new Config());
         $packages = $repo->getPackages();
         $dumper = new ArrayDumper();
 

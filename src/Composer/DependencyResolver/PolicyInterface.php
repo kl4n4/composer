@@ -12,7 +12,6 @@
 
 namespace Composer\DependencyResolver;
 
-use Composer\Repository\RepositoryInterface;
 use Composer\Package\PackageInterface;
 
 /**
@@ -20,8 +19,7 @@ use Composer\Package\PackageInterface;
  */
 interface PolicyInterface
 {
-    function versionCompare(PackageInterface $a, PackageInterface $b, $operator);
-    function findUpdatePackages(Solver $solver, Pool $pool, array $installedMap, PackageInterface $package);
-    function installable(Solver $solver, Pool $pool, array $installedMap, PackageInterface $package);
-    function selectPreferedPackages(Pool $pool, array $installedMap, array $literals);
+    public function versionCompare(PackageInterface $a, PackageInterface $b, $operator);
+    public function findUpdatePackages(Pool $pool, array $installedMap, PackageInterface $package);
+    public function selectPreferedPackages(Pool $pool, array $installedMap, array $literals);
 }

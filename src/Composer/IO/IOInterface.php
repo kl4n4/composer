@@ -22,50 +22,64 @@ interface IOInterface
     /**
      * Is this input means interactive?
      *
-     * @return Boolean
+     * @return bool
      */
-    function isInteractive();
+    public function isInteractive();
+
+    /**
+     * Is this input verbose?
+     *
+     * @return bool
+     */
+    public function isVerbose();
+
+    /**
+     * Is this output decorated?
+     *
+     * @return bool
+     */
+    public function isDecorated();
 
     /**
      * Writes a message to the output.
      *
      * @param string|array $messages The message as an array of lines or a single string
-     * @param Boolean      $newline  Whether to add a newline or not
+     * @param bool         $newline  Whether to add a newline or not
      */
-    function write($messages, $newline = true);
+    public function write($messages, $newline = true);
 
     /**
      * Overwrites a previous message to the output.
      *
      * @param string|array $messages The message as an array of lines or a single string
-     * @param Boolean      $newline  Whether to add a newline or not
+     * @param bool         $newline  Whether to add a newline or not
      * @param integer      $size     The size of line
      */
-    function overwrite($messages, $newline = true, $size = 80);
+    public function overwrite($messages, $newline = true, $size = 80);
 
     /**
      * Asks a question to the user.
      *
-     * @param string|array    $question The question to ask
-     * @param string          $default  The default answer if none is given by the user
+     * @param string|array $question The question to ask
+     * @param string       $default  The default answer if none is given by the user
      *
      * @return string The user answer
      *
      * @throws \RuntimeException If there is no data to read in the input stream
      */
-    function ask($question, $default = null);
+    public function ask($question, $default = null);
 
     /**
      * Asks a confirmation to the user.
      *
      * The question will be asked until the user answers by nothing, yes, or no.
      *
-     * @param string|array    $question The question to ask
-     * @param Boolean         $default  The default answer if the user enters nothing
+     * @param string|array $question The question to ask
+     * @param bool         $default  The default answer if the user enters nothing
      *
-     * @return Boolean true if the user has confirmed, false otherwise
+     * @return bool true if the user has confirmed, false otherwise
      */
-    function askConfirmation($question, $default = true);
+    public function askConfirmation($question, $default = true);
 
     /**
      * Asks for a value and validates the response.
@@ -74,16 +88,16 @@ interface IOInterface
      * validated data when the data is valid and throw an exception
      * otherwise.
      *
-     * @param string|array    $question  The question to ask
-     * @param callback        $validator A PHP callback
-     * @param integer         $attempts  Max number of times to ask before giving up (false by default, which means infinite)
-     * @param string          $default  The default answer if none is given by the user
+     * @param string|array $question  The question to ask
+     * @param callback     $validator A PHP callback
+     * @param integer      $attempts  Max number of times to ask before giving up (false by default, which means infinite)
+     * @param string       $default   The default answer if none is given by the user
      *
      * @return mixed
      *
      * @throws \Exception When any of the validators return an error
      */
-    function askAndValidate($question, $validator, $attempts = false, $default = null);
+    public function askAndValidate($question, $validator, $attempts = false, $default = null);
 
     /**
      * Asks a question to the user and hide the answer.
@@ -92,28 +106,14 @@ interface IOInterface
      *
      * @return string The answer
      */
-    function askAndHideAnswer($question);
-
-    /**
-     * Get the last username entered.
-     *
-     * @return string The username
-     */
-    function getLastUsername();
-
-    /**
-     * Get the last password entered.
-     *
-     * @return string The password
-     */
-    function getLastPassword();
+    public function askAndHideAnswer($question);
 
     /**
      * Get all authorization informations entered.
      *
      * @return array The map of authorization
      */
-    function getAuthorizations();
+    public function getAuthorizations();
 
     /**
      * Verify if the repository has a authorization informations.
@@ -122,7 +122,7 @@ interface IOInterface
      *
      * @return boolean
      */
-    function hasAuthorization($repositoryName);
+    public function hasAuthorization($repositoryName);
 
     /**
      * Get the username and password of repository.
@@ -131,7 +131,7 @@ interface IOInterface
      *
      * @return array The 'username' and 'password'
      */
-    function getAuthorization($repositoryName);
+    public function getAuthorization($repositoryName);
 
     /**
      * Set the authorization informations for the repository.
@@ -140,5 +140,5 @@ interface IOInterface
      * @param string $username       The username
      * @param string $password       The password
      */
-    function setAuthorization($repositoryName, $username, $password = null);
+    public function setAuthorization($repositoryName, $username, $password = null);
 }

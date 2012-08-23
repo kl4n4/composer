@@ -10,10 +10,7 @@
  * file that was distributed with this source code.
  */
 
-if ((!$loader = @include __DIR__.'/../../../.composer/autoload.php') && (!$loader = @include __DIR__.'/../vendor/.composer/autoload.php')) {
-    die('You must set up the project dependencies, run the following commands:'.PHP_EOL.
-        'curl -s http://getcomposer.org/installer | php'.PHP_EOL.
-        'php composer.phar install'.PHP_EOL);
-}
+error_reporting(E_ALL);
 
+$loader = require __DIR__.'/../src/bootstrap.php';
 $loader->add('Composer\Test', __DIR__);

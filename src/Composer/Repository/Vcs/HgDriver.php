@@ -19,31 +19,28 @@ use Composer\IO\IOInterface;
 /**
  * @author Per Bernhardt <plb@webfactory.de>
  */
-class HgDriver extends VcsDriver implements VcsDriverInterface
+class HgDriver extends VcsDriver
 {
     protected $tags;
     protected $branches;
     protected $rootIdentifier;
     protected $infoCache = array();
 
-    public function __construct($url, IOInterface $io, ProcessExecutor $process = null)
-    {
-        $this->tmpDir = sys_get_temp_dir() . '/composer-' . preg_replace('{[^a-z0-9]}i', '-', $url) . '/';
-
-        parent::__construct($url, $io, $process);
-    }
-
     /**
      * {@inheritDoc}
      */
     public function initialize()
     {
-        $url = escapeshellarg($this->url);
-        $tmpDir = escapeshellarg($this->tmpDir);
+        $this->tmpDir = $this->config->get('home') . '/cache.hg/' . preg_replace('{[^a-z0-9]}i', '-', $this->url) . '/';
+
         if (is_dir($this->tmpDir)) {
-            $this->process->execute(sprintf('cd %s && hg pull -u', $tmpDir), $output);
+            $this->process->execute(sprintf('cd %s && hg pull -u', escapeshellarg($this->tmpDir)), $output);
         } else {
-            $this->process->execute(sprintf('cd %s && hg clone %s %s', escapeshellarg(sys_get_temp_dir()), $url, $tmpDir), $output);
+            $dir = dirname($this->tmpDir);
+            if (!is_dir($dir)) {
+                mkdir($dir, 0777, true);
+            }
+            $this->process->execute(sprintf('cd %s && hg clone %s %s', escapeshellarg($dir), escapeshellarg($this->url), escapeshellarg($this->tmpDir)), $output);
         }
 
         $this->getTags();
@@ -78,7 +75,7 @@ class HgDriver extends VcsDriver implements VcsDriverInterface
      */
     public function getSource($identifier)
     {
-        $label = array_search($identifier, (array)$this->tags) ? : $identifier;
+        $label = array_search($identifier, (array) $this->tags) ? : $identifier;
 
         return array('type' => 'hg', 'url' => $this->getUrl(), 'reference' => $label);
     }
@@ -100,10 +97,10 @@ class HgDriver extends VcsDriver implements VcsDriverInterface
             $this->process->execute(sprintf('cd %s && hg cat -r %s composer.json', escapeshellarg($this->tmpDir), escapeshellarg($identifier)), $composer);
 
             if (!trim($composer)) {
-                throw new \UnexpectedValueException('Failed to retrieve composer information for identifier ' . $identifier . ' in ' . $this->getUrl());
+                return;
             }
 
-            $composer = JsonFile::parseJson($composer);
+            $composer = JsonFile::parseJson($composer, $identifier);
 
             if (!isset($composer['time'])) {
                 $this->process->execute(sprintf('cd %s && hg log --template "{date|rfc822date}" -r %s', escapeshellarg($this->tmpDir), escapeshellarg($identifier)), $output);
@@ -130,6 +127,7 @@ class HgDriver extends VcsDriver implements VcsDriverInterface
                     $tags[$match[1]] = $match[2];
                 }
             }
+            unset($tags['tip']);
 
             $this->tags = $tags;
         }
@@ -161,21 +159,7 @@ class HgDriver extends VcsDriver implements VcsDriverInterface
     /**
      * {@inheritDoc}
      */
-    public function hasComposerFile($identifier)
-    {
-        try {
-            $this->getComposerInformation($identifier);
-            return true;
-        } catch (\Exception $e) {
-        }
-
-        return false;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public static function supports($url, $deep = false)
+    public static function supports(IOInterface $io, $url, $deep = false)
     {
         if (preg_match('#(^(?:https?|ssh)://(?:[^@]@)?bitbucket.org|https://(?:.*?)\.kilnhg.com)#i', $url)) {
             return true;
@@ -187,6 +171,7 @@ class HgDriver extends VcsDriver implements VcsDriverInterface
 
         $processExecutor = new ProcessExecutor();
         $exit = $processExecutor->execute(sprintf('cd %s && hg identify %s', escapeshellarg(sys_get_temp_dir()), escapeshellarg($url)), $ignored);
+
         return $exit === 0;
     }
 }

@@ -17,18 +17,29 @@ use Composer\Json\JsonFile;
 /**
  * @author Konstantin Kudryashiv <ever.zet@gmail.com>
  */
-class JsonLoader extends ArrayLoader
+class JsonLoader
 {
+    private $loader;
+
+    public function __construct(LoaderInterface $loader)
+    {
+        $this->loader = $loader;
+    }
+
+    /**
+     * @param  string|JsonFile                    $json A filename, json string or JsonFile instance to load the package from
+     * @return \Composer\Package\PackageInterface
+     */
     public function load($json)
     {
         if ($json instanceof JsonFile) {
             $config = $json->read();
         } elseif (file_exists($json)) {
-            $config = JsonFile::parseJson(file_get_contents($json));
+            $config = JsonFile::parseJson(file_get_contents($json), $json);
         } elseif (is_string($json)) {
             $config = JsonFile::parseJson($json);
         }
 
-        return parent::load($config);
+        return $this->loader->load($config);
     }
 }

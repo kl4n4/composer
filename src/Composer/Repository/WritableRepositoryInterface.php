@@ -24,19 +24,24 @@ interface WritableRepositoryInterface extends RepositoryInterface
     /**
      * Writes repository (f.e. to the disc).
      */
-    function write();
+    public function write();
 
     /**
      * Adds package to the repository.
      *
-     * @param   PackageInterface    $package    package instance
+     * @param PackageInterface $package package instance
      */
-    function addPackage(PackageInterface $package);
+    public function addPackage(PackageInterface $package);
 
     /**
      * Removes package from the repository.
      *
-     * @param   PackageInterface    $package    package instance
+     * @param PackageInterface $package package instance
      */
-    function removePackage(PackageInterface $package);
+    public function removePackage(PackageInterface $package);
+
+    /**
+     * Forces a reload of all packages
+     */
+    public function reload();
 }

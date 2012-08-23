@@ -12,14 +12,12 @@
 
 namespace Composer\Downloader;
 
-use Composer\Package\PackageInterface;
-
 /**
  * Downloader for phar files
  *
  * @author Kirill chEbba Chebunin <iam@chebba.org>
  */
-class PharDownloader extends FileDownloader
+class PharDownloader extends ArchiveDownloader
 {
     /**
      * {@inheritDoc}
@@ -28,7 +26,7 @@ class PharDownloader extends FileDownloader
     {
         // Can throw an UnexpectedValueException
         $archive = new \Phar($file);
-        $archive->extractTo($path);
+        $archive->extractTo($path, null, true);
         /* TODO: handle openssl signed phars
          * https://github.com/composer/composer/pull/33#issuecomment-2250768
          * https://github.com/koto/phar-util

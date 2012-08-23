@@ -30,6 +30,22 @@ class NullIO implements IOInterface
     /**
      * {@inheritDoc}
      */
+    public function isVerbose()
+    {
+        return false;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function isDecorated()
+    {
+        return false;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function write($messages, $newline = true)
     {
     }
@@ -69,22 +85,6 @@ class NullIO implements IOInterface
      * {@inheritDoc}
      */
     public function askAndHideAnswer($question)
-    {
-        return null;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public function getLastUsername()
-    {
-        return null;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public function getLastPassword()
     {
         return null;
     }

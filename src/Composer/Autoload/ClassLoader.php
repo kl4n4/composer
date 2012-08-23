@@ -13,15 +13,15 @@
 namespace Composer\Autoload;
 
 /**
- * ClassLoader implements an PSR-0 class loader
+ * ClassLoader implements a PSR-0 class loader
  *
  * See https://github.com/php-fig/fig-standards/blob/master/accepted/PSR-0.md
  *
- *     $loader = new ComposerClassLoader();
+ *     $loader = new \Composer\Autoload\ClassLoader();
  *
  *     // register classes with namespaces
- *     $loader->add('Symfony\Component' => __DIR__.'/component');
- *     $loader->add('Symfony'           => __DIR__.'/framework');
+ *     $loader->add('Symfony\Component', __DIR__.'/component');
+ *     $loader->add('Symfony',           __DIR__.'/framework');
  *
  *     // activate the autoloader
  *     $loader->register();
@@ -45,6 +45,7 @@ class ClassLoader
     private $prefixes = array();
     private $fallbackDirs = array();
     private $useIncludePath = false;
+    private $classMap = array();
 
     public function getPrefixes()
     {
@@ -56,11 +57,28 @@ class ClassLoader
         return $this->fallbackDirs;
     }
 
+    public function getClassMap()
+    {
+        return $this->classMap;
+    }
+
+    /**
+     * @param array $classMap Class to filename map
+     */
+    public function addClassMap(array $classMap)
+    {
+        if ($this->classMap) {
+            $this->classMap = array_merge($this->classMap, $classMap);
+        } else {
+            $this->classMap = $classMap;
+        }
+    }
+
     /**
      * Registers a set of classes
      *
-     * @param string       $prefix  The classes prefix
-     * @param array|string $paths   The location(s) of the classes
+     * @param string       $prefix The classes prefix
+     * @param array|string $paths  The location(s) of the classes
      */
     public function add($prefix, $paths)
     {
@@ -68,6 +86,7 @@ class ClassLoader
             foreach ((array) $paths as $path) {
                 $this->fallbackDirs[] = $path;
             }
+
             return;
         }
         if (isset($this->prefixes[$prefix])) {
@@ -81,9 +100,9 @@ class ClassLoader
     }
 
     /**
-     * Turns on searching the include for class files.
+     * Turns on searching the include path for class files.
      *
-     * @param Boolean $useIncludePath
+     * @param bool $useIncludePath
      */
     public function setUseIncludePath($useIncludePath)
     {
@@ -94,7 +113,7 @@ class ClassLoader
      * Can be used to check if the autoloader uses the include path to check
      * for classes.
      *
-     * @return Boolean
+     * @return bool
      */
     public function getUseIncludePath()
     {
@@ -104,7 +123,7 @@ class ClassLoader
     /**
      * Registers this instance as an autoloader.
      *
-     * @param Boolean $prepend Whether to prepend the autoloader or not
+     * @param bool $prepend Whether to prepend the autoloader or not
      */
     public function register($prepend = false)
     {
@@ -122,13 +141,14 @@ class ClassLoader
     /**
      * Loads the given class or interface.
      *
-     * @param string $class The name of the class
-     * @return Boolean|null True, if loaded
+     * @param  string    $class The name of the class
+     * @return bool|null True, if loaded
      */
     public function loadClass($class)
     {
         if ($file = $this->findFile($class)) {
-            require $file;
+            include $file;
+
             return true;
         }
     }
@@ -142,6 +162,10 @@ class ClassLoader
      */
     public function findFile($class)
     {
+        if (isset($this->classMap[$class])) {
+            return $this->classMap[$class];
+        }
+
         if ('\\' == $class[0]) {
             $class = substr($class, 1);
         }
@@ -159,8 +183,8 @@ class ClassLoader
         $classPath .= str_replace('_', DIRECTORY_SEPARATOR, $className) . '.php';
 
         foreach ($this->prefixes as $prefix => $dirs) {
-            foreach ($dirs as $dir) {
-                if (0 === strpos($class, $prefix)) {
+            if (0 === strpos($class, $prefix)) {
+                foreach ($dirs as $dir) {
                     if (file_exists($dir . DIRECTORY_SEPARATOR . $classPath)) {
                         return $dir . DIRECTORY_SEPARATOR . $classPath;
                     }
@@ -177,5 +201,7 @@ class ClassLoader
         if ($this->useIncludePath && $file = stream_resolve_include_path($classPath)) {
             return $file;
         }
+
+        $this->classMap[$class] = false;
     }
 }

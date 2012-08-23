@@ -16,6 +16,15 @@ use Composer\Downloader\HgDownloader;
 
 class HgDownloaderTest extends \PHPUnit_Framework_TestCase
 {
+    protected function getDownloaderMock($io = null, $executor = null, $filesystem = null)
+    {
+        $io = $io ?: $this->getMock('Composer\IO\IOInterface');
+        $executor = $executor ?: $this->getMock('Composer\Util\ProcessExecutor');
+        $filesystem = $filesystem ?: $this->getMock('Composer\Util\Filesystem');
+
+        return new HgDownloader($io, $executor, $filesystem);
+    }
+
     /**
      * @expectedException \InvalidArgumentException
      */
@@ -26,7 +35,7 @@ class HgDownloaderTest extends \PHPUnit_Framework_TestCase
             ->method('getSourceReference')
             ->will($this->returnValue(null));
 
-        $downloader = new HgDownloader($this->getMock('Composer\IO\IOInterface'));
+        $downloader = $this->getDownloaderMock();
         $downloader->download($packageMock, '/path');
     }
 
@@ -43,9 +52,10 @@ class HgDownloaderTest extends \PHPUnit_Framework_TestCase
         $processExecutor = $this->getMock('Composer\Util\ProcessExecutor');
         $processExecutor->expects($this->once())
             ->method('execute')
-            ->with($this->equalTo($expectedGitCommand));
+            ->with($this->equalTo($expectedGitCommand))
+            ->will($this->returnValue(0));
 
-        $downloader = new HgDownloader($this->getMock('Composer\IO\IOInterface'), $processExecutor);
+        $downloader = $this->getDownloaderMock(null, $processExecutor);
         $downloader->download($packageMock, 'composerPath');
     }
 
@@ -60,14 +70,14 @@ class HgDownloaderTest extends \PHPUnit_Framework_TestCase
             ->method('getSourceReference')
             ->will($this->returnValue(null));
 
-        $downloader = new HgDownloader($this->getMock('Composer\IO\IOInterface'));
+        $downloader = $this->getDownloaderMock();
         $downloader->update($initialPackageMock, $sourcePackageMock, '/path');
     }
 
     public function testUpdate()
     {
-        $expectedUpdateCommand = $this->getCmd('cd \'composerPath\' && hg pull && hg up \'ref\'');
-        $expectedResetCommand = $this->getCmd('cd \'composerPath\' && hg st');
+        $expectedUpdateCommand = $this->getCmd("cd 'composerPath' && hg pull 'https://github.com/l3l0/composer' && hg up 'ref'");
+        $expectedResetCommand = $this->getCmd("cd 'composerPath' && hg st");
 
         $packageMock = $this->getMock('Composer\Package\PackageInterface');
         $packageMock->expects($this->any())
@@ -82,9 +92,10 @@ class HgDownloaderTest extends \PHPUnit_Framework_TestCase
             ->with($this->equalTo($expectedResetCommand));
         $processExecutor->expects($this->at(1))
             ->method('execute')
-            ->with($this->equalTo($expectedUpdateCommand));
+            ->with($this->equalTo($expectedUpdateCommand))
+            ->will($this->returnValue(0));
 
-        $downloader = new HgDownloader($this->getMock('Composer\IO\IOInterface'), $processExecutor);
+        $downloader = $this->getDownloaderMock(null, $processExecutor);
         $downloader->update($packageMock, $packageMock, 'composerPath');
     }
 
@@ -100,15 +111,16 @@ class HgDownloaderTest extends \PHPUnit_Framework_TestCase
         $filesystem = $this->getMock('Composer\Util\Filesystem');
         $filesystem->expects($this->any())
             ->method('removeDirectory')
-            ->with($this->equalTo('composerPath'));
+            ->with($this->equalTo('composerPath'))
+            ->will($this->returnValue(true));
 
-        $downloader = new HgDownloader($this->getMock('Composer\IO\IOInterface'), $processExecutor, $filesystem);
+        $downloader = $this->getDownloaderMock(null, $processExecutor, $filesystem);
         $downloader->remove($packageMock, 'composerPath');
     }
 
     public function testGetInstallationSource()
     {
-        $downloader = new HgDownloader($this->getMock('Composer\IO\IOInterface'));
+        $downloader = $this->getDownloaderMock(null);
 
         $this->assertEquals('source', $downloader->getInstallationSource());
     }

@@ -12,21 +12,30 @@
 
 namespace Composer\Test\Installer;
 
+use Composer\Composer;
+use Composer\Config;
 use Composer\Installer\InstallerInstaller;
 use Composer\Package\Loader\JsonLoader;
+use Composer\Package\Loader\ArrayLoader;
 use Composer\Package\PackageInterface;
 
 class InstallerInstallerTest extends \PHPUnit_Framework_TestCase
 {
+    protected $composer;
+    protected $packages;
+    protected $im;
+    protected $repository;
+    protected $io;
+
     protected function setUp()
     {
-        $loader = new JsonLoader();
+        $loader = new JsonLoader(new ArrayLoader());
         $this->packages = array();
-        for ($i = 1; $i <= 3; $i++) {
+        for ($i = 1; $i <= 4; $i++) {
             $this->packages[] = $loader->load(__DIR__.'/Fixtures/installer-v'.$i.'/composer.json');
         }
 
-        $this->dm = $this->getMockBuilder('Composer\Downloader\DownloadManager')
+        $dm = $this->getMockBuilder('Composer\Downloader\DownloadManager')
             ->disableOriginalConstructor()
             ->getMock();
 
@@ -34,11 +43,30 @@ class InstallerInstallerTest extends \PHPUnit_Framework_TestCase
             ->disableOriginalConstructor()
             ->getMock();
 
-        $this->repository = $this->getMockBuilder('Composer\Repository\WritableRepositoryInterface')
-            ->getMock();
+        $this->repository = $this->getMock('Composer\Repository\InstalledRepositoryInterface');
 
-        $this->io = $this->getMockBuilder('Composer\IO\IOInterface')
+        $rm = $this->getMockBuilder('Composer\Repository\RepositoryManager')
+            ->disableOriginalConstructor()
             ->getMock();
+        $rm->expects($this->any())
+            ->method('getLocalRepositories')
+            ->will($this->returnValue(array($this->repository)));
+
+        $this->io = $this->getMock('Composer\IO\IOInterface');
+
+        $this->composer = new Composer();
+        $config = new Config();
+        $this->composer->setConfig($config);
+        $this->composer->setDownloadManager($dm);
+        $this->composer->setInstallationManager($this->im);
+        $this->composer->setRepositoryManager($rm);
+
+        $config->merge(array(
+            'config' => array(
+                'vendor-dir' => __DIR__.'/Fixtures/',
+                'bin-dir' => __DIR__.'/Fixtures/bin',
+            ),
+        ));
     }
 
     public function testInstallNewInstaller()
@@ -47,7 +75,7 @@ class InstallerInstallerTest extends \PHPUnit_Framework_TestCase
             ->expects($this->once())
             ->method('getPackages')
             ->will($this->returnValue(array()));
-        $installer = new InstallerInstallerMock(__DIR__.'/Fixtures/', __DIR__.'/Fixtures/bin', $this->dm, $this->repository, $this->io, $this->im);
+        $installer = new InstallerInstallerMock($this->io, $this->composer);
 
         $test = $this;
         $this->im
@@ -57,7 +85,37 @@ class InstallerInstallerTest extends \PHPUnit_Framework_TestCase
                 $test->assertEquals('installer-v1', $installer->version);
             }));
 
-        $installer->install($this->packages[0]);
+        $installer->install($this->repository, $this->packages[0]);
+    }
+
+    public function testInstallMultipleInstallers()
+    {
+        $this->repository
+            ->expects($this->once())
+            ->method('getPackages')
+            ->will($this->returnValue(array()));
+
+        $installer = new InstallerInstallerMock($this->io, $this->composer);
+
+        $test = $this;
+
+        $this->im
+            ->expects($this->at(0))
+            ->method('addInstaller')
+            ->will($this->returnCallback(function ($installer) use ($test) {
+                $test->assertEquals('custom1', $installer->name);
+                $test->assertEquals('installer-v4', $installer->version);
+            }));
+
+        $this->im
+            ->expects($this->at(1))
+            ->method('addInstaller')
+            ->will($this->returnCallback(function ($installer) use ($test) {
+                $test->assertEquals('custom2', $installer->name);
+                $test->assertEquals('installer-v4', $installer->version);
+            }));
+
+        $installer->install($this->repository, $this->packages[3]);
     }
 
     public function testUpgradeWithNewClassName()
@@ -70,7 +128,7 @@ class InstallerInstallerTest extends \PHPUnit_Framework_TestCase
             ->expects($this->exactly(2))
             ->method('hasPackage')
             ->will($this->onConsecutiveCalls(true, false));
-        $installer = new InstallerInstallerMock(__DIR__.'/Fixtures/', __DIR__.'/Fixtures/bin', $this->dm, $this->repository, $this->io, $this->im);
+        $installer = new InstallerInstallerMock($this->io, $this->composer);
 
         $test = $this;
         $this->im
@@ -80,7 +138,7 @@ class InstallerInstallerTest extends \PHPUnit_Framework_TestCase
                 $test->assertEquals('installer-v2', $installer->version);
             }));
 
-        $installer->update($this->packages[0], $this->packages[1]);
+        $installer->update($this->repository, $this->packages[0], $this->packages[1]);
     }
 
     public function testUpgradeWithSameClassName()
@@ -93,7 +151,7 @@ class InstallerInstallerTest extends \PHPUnit_Framework_TestCase
             ->expects($this->exactly(2))
             ->method('hasPackage')
             ->will($this->onConsecutiveCalls(true, false));
-        $installer = new InstallerInstallerMock(__DIR__.'/Fixtures/', __DIR__.'/Fixtures/bin', $this->dm, $this->repository, $this->io, $this->im);
+        $installer = new InstallerInstallerMock($this->io, $this->composer);
 
         $test = $this;
         $this->im
@@ -103,7 +161,7 @@ class InstallerInstallerTest extends \PHPUnit_Framework_TestCase
                 $test->assertEquals('installer-v3', $installer->version);
             }));
 
-        $installer->update($this->packages[1], $this->packages[2]);
+        $installer->update($this->repository, $this->packages[1], $this->packages[2]);
     }
 }
 
@@ -112,6 +170,7 @@ class InstallerInstallerMock extends InstallerInstaller
     public function getInstallPath(PackageInterface $package)
     {
         $version = $package->getVersion();
+
         return __DIR__.'/Fixtures/installer-v'.$version[0].'/';
     }
 }

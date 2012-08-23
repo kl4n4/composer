@@ -18,48 +18,32 @@ namespace Composer\DependencyResolver;
 class SolverProblemsException extends \RuntimeException
 {
     protected $problems;
+    protected $installedMap;
 
-    public function __construct(array $problems, array $learnedPool)
+    public function __construct(array $problems, array $installedMap)
     {
-        $message = '';
-        foreach ($problems as $i => $problem) {
-            $message .= '[';
-            foreach ($problem as $why) {
+        $this->problems = $problems;
+        $this->installedMap = $installedMap;
 
-                if (is_int($why) && isset($learnedPool[$why])) {
-                    $rules = $learnedPool[$why];
-                } else {
-                    $rules = $why;
-                }
-
-                if (isset($rules['packages'])) {
-                    $message .= $this->jobToText($rules);
-                } else {
-                    $message .= '(';
-                    foreach ($rules as $rule) {
-                        if ($rule instanceof Rule) {
-                            if ($rule->getType() == RuleSet::TYPE_LEARNED) {
-                                $message .= 'learned: ';
-                            }
-                            $message .= $rule . ', ';
-                        } else {
-                            $message .= 'String(' . $rule . '), ';
-                        }
-                    }
-                    $message .= ')';
-                }
-                $message .= ', ';
-            }
-            $message .= "]\n";
-        }
-
-        parent::__construct($message);
+        parent::__construct($this->createMessage());
     }
 
-    public function jobToText($job)
+    protected function createMessage()
     {
-        //$output = serialize($job);
-        $output = 'Job(cmd='.$job['cmd'].', target='.$job['packageName'].', packages=['.implode(', ', $job['packages']).'])';
-        return $output;
+        $text = "\n";
+        foreach ($this->problems as $i => $problem) {
+            $text .= "  Problem ".($i+1).$problem->getPrettyString($this->installedMap)."\n";
+        }
+
+        if (strpos($text, 'could not be found') || strpos($text, 'no matching package found')) {
+            $text .= "\nPotential causes:\n - A typo in the package name\n - The package is not available in a stable-enough version according to your minimum-stability setting\n   see https://groups.google.com/d/topic/composer-dev/_g3ASeIFlrc/discussion for more details.\n";
+        }
+
+        return $text;
+    }
+
+    public function getProblems()
+    {
+        return $this->problems;
     }
 }

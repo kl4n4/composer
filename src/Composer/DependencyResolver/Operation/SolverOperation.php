@@ -12,6 +12,7 @@
 
 namespace Composer\DependencyResolver\Operation;
 
+use Composer\Package\Version\VersionParser;
 use Composer\Package\PackageInterface;
 
 /**
@@ -26,7 +27,7 @@ abstract class SolverOperation implements OperationInterface
     /**
      * Initializes operation.
      *
-     * @param   string  $reason     operation reason
+     * @param string $reason operation reason
      */
     public function __construct($reason = null)
     {
@@ -36,10 +37,15 @@ abstract class SolverOperation implements OperationInterface
     /**
      * Returns operation reason.
      *
-     * @return  string
+     * @return string
      */
     public function getReason()
     {
         return $this->reason;
+    }
+
+    protected function formatVersion(PackageInterface $package)
+    {
+        return VersionParser::formatVersion($package);
     }
 }

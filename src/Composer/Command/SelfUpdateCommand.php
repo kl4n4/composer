@@ -13,7 +13,7 @@
 namespace Composer\Command;
 
 use Composer\Composer;
-use Composer\Util\StreamContextFactory;
+use Composer\Util\RemoteFilesystem;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -26,6 +26,7 @@ class SelfUpdateCommand extends Command
     {
         $this
             ->setName('self-update')
+            ->setAliases(array('selfupdate'))
             ->setDescription('Updates composer.phar to the latest version.')
             ->setHelp(<<<EOT
 The <info>self-update</info> command checks getcomposer.org for newer
@@ -40,17 +41,33 @@ EOT
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $ctx = StreamContextFactory::getContext();
-
-        $latest = trim(file_get_contents('http://getcomposer.org/version', false, $ctx));
+        $rfs = new RemoteFilesystem($this->getIO());
+        $latest = trim($rfs->getContents('getcomposer.org', 'http://getcomposer.org/version', false));
 
         if (Composer::VERSION !== $latest) {
             $output->writeln(sprintf("Updating to version <info>%s</info>.", $latest));
 
             $remoteFilename = 'http://getcomposer.org/composer.phar';
             $localFilename = $_SERVER['argv'][0];
+            $tempFilename = basename($localFilename, '.phar').'-temp.phar';
 
-            copy($remoteFilename, $localFilename, $ctx);
+            $rfs->copy('getcomposer.org', $remoteFilename, $tempFilename);
+
+            try {
+                chmod($tempFilename, 0777 & ~umask());
+                // test the phar validity
+                $phar = new \Phar($tempFilename);
+                // free the variable to unlock the file
+                unset($phar);
+                rename($tempFilename, $localFilename);
+            } catch (\Exception $e) {
+                if (!$e instanceof \UnexpectedValueException && !$e instanceof \PharException) {
+                    throw $e;
+                }
+                unlink($tempFilename);
+                $output->writeln('<error>The download is corrupted ('.$e->getMessage().').</error>');
+                $output->writeln('<error>Please re-run the self-update command to try again.</error>');
+            }
         } else {
             $output->writeln("<info>You are using the latest composer version.</info>");
         }

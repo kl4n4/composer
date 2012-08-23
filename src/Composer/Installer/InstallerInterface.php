@@ -12,62 +12,67 @@
 
 namespace Composer\Installer;
 
-use Composer\DependencyResolver\Operation\OperationInterface;
 use Composer\Package\PackageInterface;
+use Composer\Repository\InstalledRepositoryInterface;
 
 /**
  * Interface for the package installation manager.
  *
  * @author Konstantin Kudryashov <ever.zet@gmail.com>
+ * @author Jordi Boggiano <j.boggiano@seld.be>
  */
 interface InstallerInterface
 {
     /**
      * Decides if the installer supports the given type
      *
-     * @param   string  $packageType
-     * @return  Boolean
+     * @param  string $packageType
+     * @return bool
      */
-    function supports($packageType);
+    public function supports($packageType);
 
     /**
      * Checks that provided package is installed.
      *
-     * @param   PackageInterface    $package    package instance
+     * @param InstalledRepositoryInterface $repo    repository in which to check
+     * @param PackageInterface             $package package instance
      *
-     * @return  Boolean
+     * @return bool
      */
-    function isInstalled(PackageInterface $package);
+    public function isInstalled(InstalledRepositoryInterface $repo, PackageInterface $package);
 
     /**
      * Installs specific package.
      *
-     * @param   PackageInterface    $package    package instance
+     * @param InstalledRepositoryInterface $repo    repository in which to check
+     * @param PackageInterface             $package package instance
      */
-    function install(PackageInterface $package);
+    public function install(InstalledRepositoryInterface $repo, PackageInterface $package);
 
     /**
      * Updates specific package.
      *
-     * @param   PackageInterface    $initial    already installed package version
-     * @param   PackageInterface    $target     updated version
+     * @param InstalledRepositoryInterface $repo    repository in which to check
+     * @param PackageInterface             $initial already installed package version
+     * @param PackageInterface             $target  updated version
      *
-     * @throws  InvalidArgumentException        if $from package is not installed
+     * @throws InvalidArgumentException if $from package is not installed
      */
-    function update(PackageInterface $initial, PackageInterface $target);
+    public function update(InstalledRepositoryInterface $repo, PackageInterface $initial, PackageInterface $target);
 
     /**
      * Uninstalls specific package.
      *
-     * @param   PackageInterface    $package    package instance
+     * @param InstalledRepositoryInterface $repo    repository in which to check
+     * @param PackageInterface             $package package instance
      */
-    function uninstall(PackageInterface $package);
+    public function uninstall(InstalledRepositoryInterface $repo, PackageInterface $package);
 
     /**
      * Returns the installation path of a package
      *
-     * @param   PackageInterface    $package
-     * @return  string path
+     * @param  PackageInterface $package
+     * @return string           path
      */
-    function getInstallPath(PackageInterface $package);
+    public function getInstallPath(PackageInterface $package);
 }

@@ -24,50 +24,59 @@ use Composer\Util\Filesystem;
 class DownloadManager
 {
     private $preferSource = false;
+    private $filesystem;
     private $downloaders  = array();
 
     /**
      * Initializes download manager.
      *
-     * @param   Boolean $preferSource   prefer downloading from source
+     * @param bool            $preferSource prefer downloading from source
+     * @param Filesystem|null $filesystem   custom Filesystem object
      */
-    public function __construct($preferSource = false)
+    public function __construct($preferSource = false, Filesystem $filesystem = null)
     {
         $this->preferSource = $preferSource;
+        $this->filesystem = $filesystem ?: new Filesystem();
     }
 
     /**
      * Makes downloader prefer source installation over the dist.
      *
-     * @param   Boolean $preferSource   prefer downloading from source
+     * @param bool $preferSource prefer downloading from source
      */
     public function setPreferSource($preferSource)
     {
         $this->preferSource = $preferSource;
+
+        return $this;
     }
 
     /**
      * Sets installer downloader for a specific installation type.
      *
-     * @param   string              $type       installation type
-     * @param   DownloaderInterface $downloader downloader instance
+     * @param string              $type       installation type
+     * @param DownloaderInterface $downloader downloader instance
      */
     public function setDownloader($type, DownloaderInterface $downloader)
     {
+        $type = strtolower($type);
         $this->downloaders[$type] = $downloader;
+
+        return $this;
     }
 
     /**
      * Returns downloader for a specific installation type.
      *
-     * @param   string  $type   installation type
+     * @param string $type installation type
      *
-     * @return  DownloaderInterface
+     * @return DownloaderInterface
      *
-     * @throws  UnexpectedValueException    if downloader for provided type is not registeterd
+     * @throws UnexpectedValueException if downloader for provided type is not registeterd
      */
     public function getDownloader($type)
     {
+        $type = strtolower($type);
         if (!isset($this->downloaders[$type])) {
             throw new \InvalidArgumentException('Unknown downloader type: '.$type);
         }
@@ -78,12 +87,12 @@ class DownloadManager
     /**
      * Returns downloader for already installed package.
      *
-     * @param   PackageInterface    $package    package instance
+     * @param PackageInterface $package package instance
      *
-     * @return  DownloaderInterface
+     * @return DownloaderInterface
      *
-     * @throws  InvalidArgumentException        if package has no installation source specified
-     * @throws  LogicException                  if specific downloader used to load package with
+     * @throws InvalidArgumentException if package has no installation source specified
+     * @throws LogicException           if specific downloader used to load package with
      *                                          wrong type
      */
     public function getDownloaderForInstalledPackage(PackageInterface $package)
@@ -113,11 +122,11 @@ class DownloadManager
     /**
      * Downloads package into target dir.
      *
-     * @param   PackageInterface    $package        package instance
-     * @param   string              $targetDir      target dir
-     * @param   Boolean             $preferSource   prefer installation from source
+     * @param PackageInterface $package      package instance
+     * @param string           $targetDir    target dir
+     * @param bool             $preferSource prefer installation from source
      *
-     * @throws  InvalidArgumentException            if package have no urls to download from
+     * @throws InvalidArgumentException if package have no urls to download from
      */
     public function download(PackageInterface $package, $targetDir, $preferSource = null)
     {
@@ -135,8 +144,7 @@ class DownloadManager
             throw new \InvalidArgumentException('Package '.$package.' must have a source or dist specified');
         }
 
-        $fs = new Filesystem();
-        $fs->ensureDirectoryExists($targetDir);
+        $this->filesystem->ensureDirectoryExists($targetDir);
 
         $downloader = $this->getDownloaderForInstalledPackage($package);
         $downloader->download($package, $targetDir);
@@ -145,11 +153,11 @@ class DownloadManager
     /**
      * Updates package from initial to target version.
      *
-     * @param   PackageInterface    $initial    initial package version
-     * @param   PackageInterface    $target     target package version
-     * @param   string              $targetDir  target dir
+     * @param PackageInterface $initial   initial package version
+     * @param PackageInterface $target    target package version
+     * @param string           $targetDir target dir
      *
-     * @throws  InvalidArgumentException        if initial package is not installed
+     * @throws InvalidArgumentException if initial package is not installed
      */
     public function update(PackageInterface $initial, PackageInterface $target, $targetDir)
     {
@@ -164,6 +172,14 @@ class DownloadManager
             $targetType  = $target->getSourceType();
         }
 
+        // upgrading from a dist stable package to a dev package, force source reinstall
+        if ($target->isDev() && 'dist' === $installationSource) {
+            $downloader->remove($initial, $targetDir);
+            $this->download($target, $targetDir);
+
+            return;
+        }
+
         if ($initialType === $targetType) {
             $target->setInstallationSource($installationSource);
             $downloader->update($initial, $target, $targetDir);
@@ -176,8 +192,8 @@ class DownloadManager
     /**
      * Removes package from target dir.
      *
-     * @param   PackageInterface    $package    package instance
-     * @param   string              $targetDir  target dir
+     * @param PackageInterface $package   package instance
+     * @param string           $targetDir target dir
      */
     public function remove(PackageInterface $package, $targetDir)
     {

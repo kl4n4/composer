@@ -12,14 +12,12 @@
 
 namespace Composer\Downloader;
 
-use Composer\Package\PackageInterface;
-
 /**
  * Downloader for tar files: tar, tar.gz or tar.bz2
  *
  * @author Kirill chEbba Chebunin <iam@chebba.org>
  */
-class TarDownloader extends FileDownloader
+class TarDownloader extends ArchiveDownloader
 {
     /**
      * {@inheritDoc}
@@ -28,6 +26,6 @@ class TarDownloader extends FileDownloader
     {
         // Can throw an UnexpectedValueException
         $archive = new \PharData($file);
-        $archive->extractTo($path);
+        $archive->extractTo($path, null, true);
     }
 }

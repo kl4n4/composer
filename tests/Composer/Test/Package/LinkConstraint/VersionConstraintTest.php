@@ -10,13 +10,13 @@
  * file that was distributed with this source code.
  */
 
-namespace Composer\Test\Package;
+namespace Composer\Test\Package\LinkConstraint;
 
 use Composer\Package\LinkConstraint\VersionConstraint;
 
 class VersionConstraintTest extends \PHPUnit_Framework_TestCase
 {
-    static public function successfulVersionMatches()
+    public static function successfulVersionMatches()
     {
         return array(
             //    require    provide
@@ -27,6 +27,19 @@ class VersionConstraintTest extends \PHPUnit_Framework_TestCase
             array('<=', '2', '>=', '1'),
             array('>=', '1', '<=', '2'),
             array('==', '2', '>=', '2'),
+            array('!=', '1', '!=', '1'),
+            array('!=', '1', '==', '2'),
+            array('!=', '1', '<',  '1'),
+            array('!=', '1', '<=', '1'),
+            array('!=', '1', '>',  '1'),
+            array('!=', '1', '>=', '1'),
+            array('==', 'dev-foo-bar', '==', 'dev-foo-bar'),
+            array('==', 'dev-foo-xyz', '==', 'dev-foo-xyz'),
+            array('>=', 'dev-foo-bar', '>=', 'dev-foo-xyz'),
+            array('<=', 'dev-foo-bar', '<', 'dev-foo-xyz'),
+            array('!=', 'dev-foo-bar', '<', 'dev-foo-xyz'),
+            array('>=', 'dev-foo-bar', '!=', 'dev-foo-bar'),
+            array('!=', 'dev-foo-bar', '!=', 'dev-foo-xyz'),
         );
     }
 
@@ -41,7 +54,7 @@ class VersionConstraintTest extends \PHPUnit_Framework_TestCase
         $this->assertTrue($versionRequire->matches($versionProvide));
     }
 
-    static public function failingVersionMatches()
+    public static function failingVersionMatches()
     {
         return array(
             //    require    provide
@@ -53,6 +66,12 @@ class VersionConstraintTest extends \PHPUnit_Framework_TestCase
             array('<=', '1', '>=', '2'),
             array('>=', '2', '<=', '1'),
             array('==', '2', '<', '2'),
+            array('!=', '1', '==', '1'),
+            array('==', '1', '!=', '1'),
+            array('==', 'dev-foo-dist', '==', 'dev-foo-zist'),
+            array('==', 'dev-foo-bist', '==', 'dev-foo-aist'),
+            array('<=', 'dev-foo-bist', '>=', 'dev-foo-aist'),
+            array('>=', 'dev-foo-bist', '<', 'dev-foo-aist'),
         );
     }
 

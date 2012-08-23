@@ -17,40 +17,47 @@ namespace Composer\DependencyResolver;
  */
 class Rule
 {
+    const RULE_INTERNAL_ALLOW_UPDATE = 1;
+    const RULE_JOB_INSTALL = 2;
+    const RULE_JOB_REMOVE = 3;
+    const RULE_PACKAGE_CONFLICT = 6;
+    const RULE_PACKAGE_REQUIRES = 7;
+    const RULE_PACKAGE_OBSOLETES = 8;
+    const RULE_INSTALLED_PACKAGE_OBSOLETES = 9;
+    const RULE_PACKAGE_SAME_NAME = 10;
+    const RULE_PACKAGE_IMPLICIT_OBSOLETES = 11;
+    const RULE_LEARNED = 12;
+    const RULE_PACKAGE_ALIAS = 13;
+
+    protected $pool;
+
     protected $disabled;
     protected $literals;
     protected $type;
     protected $id;
-    protected $weak;
 
-    public $watch1;
-    public $watch2;
+    protected $job;
 
-    public $next1;
-    public $next2;
+    protected $ruleHash;
 
-    public $ruleHash;
-
-    public function __construct(array $literals, $reason, $reasonData)
+    public function __construct(Pool $pool, array $literals, $reason, $reasonData, $job = null)
     {
+        $this->pool = $pool;
+
         // sort all packages ascending by id
-        usort($literals, array($this, 'compareLiteralsById'));
+        sort($literals);
 
         $this->literals = $literals;
         $this->reason = $reason;
         $this->reasonData = $reasonData;
 
         $this->disabled = false;
-        $this->weak = false;
 
-        $this->watch1 = (count($this->literals) > 0) ? $literals[0]->getId() : 0;
-        $this->watch2 = (count($this->literals) > 1) ? $literals[1]->getId() : 0;
+        $this->job = $job;
 
         $this->type = -1;
 
-        $this->ruleHash = substr(md5(implode(',', array_map(function ($l) {
-            return $l->getId();
-        }, $this->literals))), 0, 5);
+        $this->ruleHash = substr(md5(implode(',', $this->literals)), 0, 5);
     }
 
     public function getHash()
@@ -68,13 +75,18 @@ class Rule
         return $this->id;
     }
 
+    public function getJob()
+    {
+        return $this->job;
+    }
+
     /**
      * Checks if this rule is equal to another one
      *
      * Ignores whether either of the rules is disabled.
      *
      * @param  Rule $rule The rule to check against
-     * @return bool       Whether the rules are equal
+     * @return bool Whether the rules are equal
      */
     public function equals(Rule $rule)
     {
@@ -87,7 +99,7 @@ class Rule
         }
 
         for ($i = 0, $n = count($this->literals); $i < $n; $i++) {
-            if ($this->literals[$i]->getId() !== $rule->literals[$i]->getId()) {
+            if ($this->literals[$i] !== $rule->literals[$i]) {
                 return false;
             }
         }
@@ -125,16 +137,6 @@ class Rule
         return !$this->disabled;
     }
 
-    public function isWeak()
-    {
-        return $this->weak;
-    }
-
-    public function setWeak($weak)
-    {
-        $this->weak = $weak;
-    }
-
     public function getLiterals()
     {
         return $this->literals;
@@ -145,21 +147,74 @@ class Rule
         return 1 === count($this->literals);
     }
 
-    public function getNext(Literal $literal)
+    public function getPrettyString(array $installedMap = array())
     {
-        if ($this->watch1 == $literal->getId()) {
-            return $this->next1;
-        } else {
-            return $this->next2;
+        $ruleText = '';
+        foreach ($this->literals as $i => $literal) {
+            if ($i != 0) {
+                $ruleText .= '|';
+            }
+            $ruleText .= $this->pool->literalToPrettyString($literal, $installedMap);
         }
-    }
 
-    public function getOtherWatch(Literal $literal)
-    {
-        if ($this->watch1 == $literal->getId()) {
-            return $this->watch2;
-        } else {
-            return $this->watch1;
+        switch ($this->reason) {
+            case self::RULE_INTERNAL_ALLOW_UPDATE:
+                return $ruleText;
+
+            case self::RULE_JOB_INSTALL:
+                return "Install command rule ($ruleText)";
+
+            case self::RULE_JOB_REMOVE:
+                return "Remove command rule ($ruleText)";
+
+            case self::RULE_PACKAGE_CONFLICT:
+                $package1 = $this->pool->literalToPackage($this->literals[0]);
+                $package2 = $this->pool->literalToPackage($this->literals[1]);
+
+                return $package1->getPrettyString().' conflicts with '.$package2->getPrettyString().'.';
+
+            case self::RULE_PACKAGE_REQUIRES:
+                $literals = $this->literals;
+                $sourceLiteral = array_shift($literals);
+                $sourcePackage = $this->pool->literalToPackage($sourceLiteral);
+
+                $requires = array();
+                foreach ($literals as $literal) {
+                    $requires[] = $this->pool->literalToPackage($literal);
+                }
+
+                $text = $this->reasonData->getPrettyString($sourcePackage);
+                if ($requires) {
+                    $requireText = array();
+                    foreach ($requires as $require) {
+                        $requireText[] = $require->getPrettyString();
+                    }
+                    $text .= ' -> satisfiable by '.implode(', ', $requireText).'.';
+                } else {
+                    $text .= ' -> no matching package found.';
+                }
+
+                return $text;
+
+            case self::RULE_PACKAGE_OBSOLETES:
+                return $ruleText;
+            case self::RULE_INSTALLED_PACKAGE_OBSOLETES:
+                return $ruleText;
+            case self::RULE_PACKAGE_SAME_NAME:
+                $text = "Can only install one of: ";
+
+                $packages = array();
+                foreach ($this->literals as $i => $literal) {
+                    $packages[] = $this->pool->literalToPackage($literal)->getPrettyString();
+                }
+
+                return $text.implode(', ', $packages).'.';
+            case self::RULE_PACKAGE_IMPLICIT_OBSOLETES:
+                return $ruleText;
+            case self::RULE_LEARNED:
+                return 'Conclusion: '.$ruleText;
+            case self::RULE_PACKAGE_ALIAS:
+                return $ruleText;
         }
     }
 
@@ -176,26 +231,11 @@ class Rule
             if ($i != 0) {
                 $result .= '|';
             }
-            $result .= $literal;
+            $result .= $this->pool->literalToString($literal);
         }
 
         $result .= ')';
 
         return $result;
-    }
-
-    /**
-     * Comparison function for sorting literals by their id
-     *
-     * @param  Literal $a
-     * @param  Literal $b
-     * @return int        0 if the literals are equal, 1 if b is larger than a, -1 else
-     */
-    private function compareLiteralsById(Literal $a, Literal $b)
-    {
-        if ($a->getId() === $b->getId()) {
-            return 0;
-        }
-        return $a->getId() < $b->getId() ? -1 : 1;
     }
 }

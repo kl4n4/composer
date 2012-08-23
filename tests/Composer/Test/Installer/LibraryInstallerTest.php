@@ -13,50 +13,63 @@
 namespace Composer\Test\Installer;
 
 use Composer\Installer\LibraryInstaller;
-use Composer\DependencyResolver\Operation;
 use Composer\Util\Filesystem;
+use Composer\Test\TestCase;
+use Composer\Composer;
+use Composer\Config;
 
-class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
+class LibraryInstallerTest extends TestCase
 {
-    private $vendorDir;
-    private $binDir;
-    private $dm;
-    private $repository;
-    private $io;
-    private $fs;
+    protected $composer;
+    protected $config;
+    protected $vendorDir;
+    protected $binDir;
+    protected $dm;
+    protected $repository;
+    protected $io;
+    protected $fs;
 
     protected function setUp()
     {
         $this->fs = new Filesystem;
 
+        $this->composer = new Composer();
+        $this->config = new Config();
+        $this->composer->setConfig($this->config);
+
         $this->vendorDir = realpath(sys_get_temp_dir()).DIRECTORY_SEPARATOR.'composer-test-vendor';
-        if (is_dir($this->vendorDir)) {
-            $this->fs->removeDirectory($this->vendorDir);
-        }
-        mkdir($this->vendorDir);
+        $this->ensureDirectoryExistsAndClear($this->vendorDir);
 
         $this->binDir = realpath(sys_get_temp_dir()).DIRECTORY_SEPARATOR.'composer-test-bin';
-        if (is_dir($this->binDir)) {
-            $this->fs->removeDirectory($this->binDir);
-        }
-        mkdir($this->binDir);
+        $this->ensureDirectoryExistsAndClear($this->binDir);
+
+        $this->config->merge(array(
+            'config' => array(
+                'vendor-dir' => $this->vendorDir,
+                'bin-dir' => $this->binDir,
+            ),
+        ));
 
         $this->dm = $this->getMockBuilder('Composer\Downloader\DownloadManager')
             ->disableOriginalConstructor()
             ->getMock();
+        $this->composer->setDownloadManager($this->dm);
 
-        $this->repository = $this->getMockBuilder('Composer\Repository\WritableRepositoryInterface')
-            ->getMock();
+        $this->repository = $this->getMock('Composer\Repository\InstalledRepositoryInterface');
+        $this->io = $this->getMock('Composer\IO\IOInterface');
+    }
 
-        $this->io = $this->getMockBuilder('Composer\IO\IOInterface')
-            ->getMock();
+    protected function tearDown()
+    {
+        $this->fs->removeDirectory($this->vendorDir);
+        $this->fs->removeDirectory($this->binDir);
     }
 
     public function testInstallerCreationShouldNotCreateVendorDirectory()
     {
         $this->fs->removeDirectory($this->vendorDir);
 
-        new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
+        new LibraryInstaller($this->io, $this->composer);
         $this->assertFileNotExists($this->vendorDir);
     }
 
@@ -64,13 +77,13 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
     {
         $this->fs->removeDirectory($this->binDir);
 
-        new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
+        new LibraryInstaller($this->io, $this->composer);
         $this->assertFileNotExists($this->binDir);
     }
 
     public function testIsInstalled()
     {
-        $library = new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
+        $library = new LibraryInstaller($this->io, $this->composer);
         $package = $this->createPackageMock();
 
         $this->repository
@@ -79,8 +92,8 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
             ->with($package)
             ->will($this->onConsecutiveCalls(true, false));
 
-        $this->assertTrue($library->isInstalled($package));
-        $this->assertFalse($library->isInstalled($package));
+        $this->assertTrue($library->isInstalled($this->repository, $package));
+        $this->assertFalse($library->isInstalled($this->repository, $package));
     }
 
     /**
@@ -89,11 +102,11 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
      */
     public function testInstall()
     {
-        $library = new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
+        $library = new LibraryInstaller($this->io, $this->composer);
         $package = $this->createPackageMock();
 
         $package
-            ->expects($this->once())
+            ->expects($this->any())
             ->method('getPrettyName')
             ->will($this->returnValue('some/package'));
 
@@ -107,7 +120,7 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
             ->method('addPackage')
             ->with($package);
 
-        $library->install($package);
+        $library->install($this->repository, $package);
         $this->assertFileExists($this->vendorDir, 'Vendor dir should be created');
         $this->assertFileExists($this->binDir, 'Bin dir should be created');
     }
@@ -118,12 +131,12 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
      */
     public function testUpdate()
     {
-        $library = new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
+        $library = new LibraryInstaller($this->io, $this->composer);
         $initial = $this->createPackageMock();
         $target  = $this->createPackageMock();
 
         $initial
-            ->expects($this->once())
+            ->expects($this->any())
             ->method('getPrettyName')
             ->will($this->returnValue('package1'));
 
@@ -147,22 +160,22 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
             ->method('addPackage')
             ->with($target);
 
-        $library->update($initial, $target);
+        $library->update($this->repository, $initial, $target);
         $this->assertFileExists($this->vendorDir, 'Vendor dir should be created');
         $this->assertFileExists($this->binDir, 'Bin dir should be created');
 
         $this->setExpectedException('InvalidArgumentException');
 
-        $library->update($initial, $target);
+        $library->update($this->repository, $initial, $target);
     }
 
     public function testUninstall()
     {
-        $library = new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
+        $library = new LibraryInstaller($this->io, $this->composer);
         $package = $this->createPackageMock();
 
         $package
-            ->expects($this->once())
+            ->expects($this->any())
             ->method('getPrettyName')
             ->will($this->returnValue('pkg'));
 
@@ -182,17 +195,17 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
             ->method('removePackage')
             ->with($package);
 
-        $library->uninstall($package);
+        $library->uninstall($this->repository, $package);
 
         // TODO re-enable once #125 is fixed and we throw exceptions again
 //        $this->setExpectedException('InvalidArgumentException');
 
-        $library->uninstall($package);
+        $library->uninstall($this->repository, $package);
     }
 
     public function testGetInstallPath()
     {
-        $library = new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
+        $library = new LibraryInstaller($this->io, $this->composer);
         $package = $this->createPackageMock();
 
         $package
@@ -205,7 +218,7 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
 
     public function testGetInstallPathWithTargetDir()
     {
-        $library = new LibraryInstaller($this->vendorDir, $this->binDir, $this->dm, $this->repository, $this->io);
+        $library = new LibraryInstaller($this->io, $this->composer);
         $package = $this->createPackageMock();
 
         $package
@@ -220,7 +233,7 @@ class LibraryInstallerTest extends \PHPUnit_Framework_TestCase
         $this->assertEquals($this->vendorDir.'/'.$package->getPrettyName().'/Some/Namespace', $library->getInstallPath($package));
     }
 
-    private function createPackageMock()
+    protected function createPackageMock()
     {
         return $this->getMockBuilder('Composer\Package\MemoryPackage')
             ->setConstructorArgs(array(md5(rand()), '1.0.0.0', '1.0.0'))

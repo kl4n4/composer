@@ -7,3 +7,7 @@
 /*.ipr
 /*.iws
 /nbproject
+phpunit.xml
+.vagrant
+Vagrantfile
+.idea
