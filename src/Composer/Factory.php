@@ -229,6 +229,7 @@ class Factory
         $dm->setDownloader('tar', new Downloader\TarDownloader($io));
         $dm->setDownloader('phar', new Downloader\PharDownloader($io));
         $dm->setDownloader('file', new Downloader\FileDownloader($io));
+        $dm->setDownloader('s3', new Downloader\S3Downloader($io));
 
         return $dm;
     }
