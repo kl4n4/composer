@@ -47,15 +47,11 @@ class VcsRepository extends ArrayRepository
             'hg'            => 'Composer\Repository\Vcs\HgDriver',
         );
 
-<<<<<<< HEAD
-        $this->url = $config['url'];
-		if(isset($config['username']) && isset($config['password'])) {
-			$this->username = $config['username'];
-			$this->password = $config['password'];
-		}
-=======
         $this->url = $repoConfig['url'];
->>>>>>> 27d8904abefd4bd14cf8306ff7bcece8736b62f7
+		if(isset($repoConfig['username']) && isset($repoConfig['password'])) {
+			$this->username = $repoConfig['username'];
+			$this->password = $repoConfig['password'];
+		}
         $this->io = $io;
         $this->type = isset($repoConfig['type']) ? $repoConfig['type'] : 'vcs';
         $this->verbose = $io->isVerbose();
