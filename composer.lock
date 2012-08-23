@@ -1,9 +1,15 @@
 {
-    "hash": "a1b94e69712d09a07bb817423533c483",
+    "hash": "f7593bffeccc835bc1cf9ec14017ea19",
     "packages": [
         {
             "package": "justinrainbow/json-schema",
             "version": "1.1.0"
+        },
+        {
+            "package": "oyatel/amazon-s3-php-class",
+            "version": "dev-master",
+            "source-reference": "8a0407eb106815ccc5f3f4faf6b37a746185b068",
+            "commit-date": "1332447489"
         },
         {
             "package": "seld/jsonlint",
@@ -30,6 +36,7 @@
     "stability-flags": {
         "symfony/console": 5,
         "symfony/finder": 5,
-        "symfony/process": 5
+        "symfony/process": 5,
+        "oyatel/amazon-s3-php-class": 20
     }
 }
